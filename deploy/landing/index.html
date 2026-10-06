@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Explore how forces travel through your 3D-printed parts. An experimental MakerSim playground by RawLabs.">
+  <title>MakerSim · Follow the force</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/assets/hero.css">
+  <script type="module" src="/status.js"></script>
+  <script type="module" src="/assets/hero.js"></script>
+</head>
+<body>
+  <header><a class="brand" href="/" aria-label="MakerSim home"><img src="/favicon.svg" width="42" height="42" alt=""><span>MakerSim</span></a><a href="https://shftstate.rawcastdigital.com/#contact">Get in touch ↗</a></header>
+  <main>
+    <div class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">DESIGN · ANALYZE · MAKE</p>
+        <h1>Follow <br>the force<span>.</span></h1>
+        <p class="intro">See where a pull travels through your part.</p>
+        <p class="hero-description">Bring an STL, choose your print settings, hold a surface, and place a pull. Explore the load path through colour and movement.</p>
+        <div class="hero-steps" aria-label="How it works"><span><i class="hold-dot"></i>Hold here</span><span><i class="pull-dot"></i>Pull here</span><span><i class="stress-dot"></i>See the stress</span></div>
+      </div>
+      <figure class="stress-preview" aria-labelledby="preview-caption">
+        <div class="preview-top"><span>BACKPACK BRACKET</span><button id="reset-preview" type="button" hidden>Reset view ↺</button></div>
+        <div id="hero-viewer" class="hero-viewer"><img class="preview-fallback" src="/assets/stress-preview.png" alt="A 3D bracket under a downward pull, with a blue-to-red stress heatmap concentrated around its bend." width="620" height="470"></div>
+        <figcaption id="preview-caption"><div class="stress-key"><span>Relative stress</span><div class="stress-ramp" aria-hidden="true"></div><div class="stress-extents"><span>Lower</span><span>Concentrated</span></div></div><p>Real example preview<br><span id="preview-instruction">Hold points + downward pull</span></p></figcaption>
+      </figure>
+    </div>
+    <section class="session" aria-labelledby="session-title">
+      <div class="status" role="status" aria-live="polite"><span id="indicator"></span><span id="status">CHECKING PLAYGROUND</span></div>
+      <h2 id="session-title">A small, experimental playground.</h2>
+      <p id="availability">Checking whether the testing server is available.</p>
+      <div class="actions"><a id="launch" class="button" href="https://makersim-playground.rawcastdigital.com/" hidden>Open the playground <span aria-hidden="true">↗</span></a><a class="contact" href="https://shftstate.rawcastdigital.com/#contact">Request a testing session ↗</a></div>
+      <noscript><p>Enable JavaScript to see live availability, or <a href="https://makersim-playground.rawcastdigital.com/">try the playground</a>.</p></noscript>
+    </section>
+    <div class="details">
+      <section><h2>Explore a design</h2><p>Try the included backpack bracket or upload an STL up to 20 MB. Change filament, infill, walls, build direction, and the applied force to see how the preview changes.</p></section>
+      <section><h2>Know the limits</h2><p>This early preview does not predict failure or establish safe working loads. Coarse meshes can understate bending movement. Use it to explore ideas; verify real parts through suitable analysis and testing.</p></section>
+      <section><h2>Use non-sensitive parts</h2><p>The playground processes uploads on an isolated preview server. Parts expire after 15 minutes and clear from memory on the next one-minute cleanup. Each browser has a separate temporary workspace.</p></section>
+    </div>
+  </main>
+  <footer><span>MakerSim · An experimental project by RawLabs</span><a href="https://shftstate.rawcastdigital.com/#contact">Feedback & testing sessions ↗</a></footer>
+</body>
+</html>

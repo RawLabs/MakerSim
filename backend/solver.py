@@ -12,7 +12,7 @@ from scipy import ndimage
 from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import MatrixRankWarning, spsolve
 
-from .schemas import Patch, PrintSettings, SimulationRequest, force_newtons
+from .schemas import Patch, PrintSettings, SimulationRequest, force_newtons, normalized_vector
 from .geometry import TriangleMesh, voxelize
 
 MAX_CELLS = 4800
@@ -65,8 +65,14 @@ def strain_matrix(points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def create_volume(mesh: TriangleMesh, resolution: int = 28) -> VolumeMesh:
-    if mesh.components != 1:
-        raise SimulationError("The STL contains separate pieces. Upload one connected, solid part.")
+    if not mesh.is_watertight:
+        raise SimulationError("This STL has an open surface. Repair it before simulating.")
+    if not mesh.has_consistent_winding:
+        raise SimulationError("This STL has inconsistent triangle directions. Repair its normals in your slicer and export again before simulating.")
+    try:
+        mesh.validate_single_solid()
+    except ValueError as error:
+        raise SimulationError(str(error)) from error
     pitch = float(mesh.extents.max()) / resolution
     # Adaptive bounded meshing.
     for _ in range(8):
@@ -110,6 +116,8 @@ def create_volume(mesh: TriangleMesh, resolution: int = 28) -> VolumeMesh:
 
 
 def printed_elasticity(material: dict, settings: PrintSettings, mesh: TriangleMesh) -> tuple[np.ndarray, dict]:
+    if not mesh.has_consistent_winding:
+        raise SimulationError("This STL has inconsistent triangle directions. Repair its normals in your slicer and export again before simulating.")
     # Fixed 0.45 mm extrusion / 0.20 mm layers in v1, explained in the UI.
     characteristic_thickness = max(0.5, 2 * abs(mesh.volume) / mesh.area)
     shell = min(1.0, (2 * settings.walls * 0.45 + (settings.top_layers + settings.bottom_layers) * 0.2) / characteristic_thickness)
@@ -141,8 +149,7 @@ def printed_elasticity(material: dict, settings: PrintSettings, mesh: TriangleMe
 def patch_nodes(volume: VolumeMesh, patch: Patch) -> tuple[np.ndarray, float]:
     points = volume.nodes[volume.surface]
     center = np.array(patch.point)
-    normal = np.array(patch.normal)
-    normal /= np.linalg.norm(normal)
+    normal = np.array(normalized_vector(patch.normal, "A selected area needs a finite, nonzero surface normal."))
     delta = points - center
     depth = delta @ normal
     tangent = np.linalg.norm(delta - depth[:, None] * normal, axis=1)
@@ -181,8 +188,7 @@ def solve(volume: VolumeMesh, mesh: TriangleMesh, material: dict, request: Simul
     # Reject overlaps instead of producing a misleading near-zero heatmap.
     if np.intersect1d(fixed, loaded).size:
         raise SimulationError("The pull area overlaps a held area on the quick mesh. Move the pull farther away or use a smaller hold.")
-    direction = np.array(request.direction)
-    direction /= np.linalg.norm(direction)
+    direction = np.array(normalized_vector(request.direction, "The pull needs a finite, nonzero direction."))
     force_n = force_newtons(request.magnitude, request.unit)
     delta = volume.nodes[loaded] - np.array(request.load.point)
     weights = np.maximum(0.08, 1 - np.linalg.norm(delta, axis=1) / (actual_radius + volume.pitch))
@@ -208,8 +214,10 @@ def solve(volume: VolumeMesh, mesh: TriangleMesh, material: dict, request: Simul
     if not np.isfinite(u).all():
         raise SimulationError("The solver couldn't find a stable result. Try larger held areas.")
     residual = stiffness @ u - force.ravel()
-    relative_residual = np.linalg.norm(residual[free]) / force_n
-    if relative_residual > 1e-5:
+    relative_residual = np.linalg.norm(residual[free] / force_n)
+    reaction = residual.reshape(-1, 3)[fixed].sum(axis=0)
+    relative_force_balance = float(np.linalg.norm(reaction / force_n + direction))
+    if not np.isfinite(relative_residual) or not np.isfinite(relative_force_balance) or max(relative_residual, relative_force_balance) > 1e-5:
         raise SimulationError("The solver couldn't balance the load reliably. Try larger held areas.")
     strain = np.einsum('eij,ej->ei', volume.b, u[dofs])
     stress = strain @ d.T
@@ -240,7 +248,7 @@ def solve(volume: VolumeMesh, mesh: TriangleMesh, material: dict, request: Simul
         "force_newtons": force_n,
         "mesh": {"nodes": len(volume.nodes), "elements": len(volume.tets), "cell_mm": volume.pitch},
         "patches": {"fixed_nodes": len(fixed), "loaded_nodes": len(loaded), "load_radius_mm": actual_radius},
-        "checks": {"relative_residual": float(relative_residual), "reaction_newtons": residual.reshape(-1, 3)[fixed].sum(axis=0).tolist()},
+        "checks": {"relative_residual": float(relative_residual), "relative_force_balance": relative_force_balance, "reaction_newtons": reaction.tolist()},
         "effective_material": properties,
         "notes": messages,
     }

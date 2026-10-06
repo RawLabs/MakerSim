@@ -142,6 +142,88 @@ def test_separate_solids_are_not_accidentally_joined_by_meshing():
         create_volume(mesh)
 
 
+def cavity_mesh(outer,cavities):
+    # STL surfaces enclosing voids have the opposite winding to the exterior.
+    triangles = np.concatenate([outer.triangles,*[c.triangles[:,::-1] for c in cavities]])
+    return read_stl(write_binary_stl(triangles))
+
+
+@pytest.mark.parametrize('reverse',[False,True])
+def test_enclosed_cavity_is_one_solid_and_stays_empty(reverse):
+    mesh = cavity_mesh(box_mesh((60,20,20)),[box_mesh((20,6,6))])
+    if reverse:
+        mesh.faces = mesh.faces[:,::-1]
+    assert mesh.components == 2
+    assert mesh.is_watertight and mesh.has_consistent_winding
+    volume = create_volume(mesh)
+    centers = volume.nodes[volume.cells].mean(axis=1)
+    assert volume.components == 1
+    assert not np.any(np.all(np.abs(centers) < [8,2,2],axis=1))
+    assert abs(mesh.volume) == pytest.approx(60*20*20-20*6*6)
+    request = SimulationRequest(model_id='hollow-bar',material_id='generic-petg',
+        fixtures=[Patch(point=(-30,0,0),normal=(-1,0,0),radius=14)],
+        load=Patch(point=(30,0,0),normal=(1,0,0),radius=14),
+        magnitude=5,unit='N',direction=(1,0,0))
+    result = solve(volume,mesh,MATERIALS['generic-petg'],request)
+    assert result['checks']['relative_force_balance'] < 1e-8
+    assert result['checks']['reaction_newtons'] == pytest.approx([-5,0,0],abs=1e-6)
+
+
+def test_reversed_disconnected_shell_is_still_rejected():
+    other = box_mesh((20,6,6))
+    other.vertices[:,0] += 50.1
+    mesh = cavity_mesh(box_mesh((60,20,20)),[other])
+    with pytest.raises(SimulationError,match='separate pieces'):
+        create_volume(mesh)
+
+
+def test_cavity_cannot_bridge_air_between_concave_walls():
+    outer = thin_channel_mesh()
+    inner = box_mesh((59,4,1))
+    inner.vertices[:,2] += 1
+    # Each inner corner lies in one of the posts, but its faces cross the gap.
+    if outer.volume < 0:
+        inner.faces = inner.faces[:,::-1]
+    mesh = cavity_mesh(outer,[inner])
+    with pytest.raises(SimulationError,match='intersecting or touching'):
+        create_volume(mesh)
+
+
+def test_overlapping_and_nested_voids_are_rejected():
+    first,second = box_mesh((20,6,6)),box_mesh((20,6,6))
+    second.vertices[:,0] += 5
+    mesh = cavity_mesh(box_mesh((60,20,20)),[first,second])
+    with pytest.raises(SimulationError,match='overlapping enclosed'):
+        create_volume(mesh)
+    mesh = cavity_mesh(box_mesh((60,20,20)),[first,box_mesh((10,2,2))])
+    with pytest.raises(SimulationError,match='overlapping enclosed'):
+        create_volume(mesh)
+
+
+def test_multiple_separate_cavities_are_allowed():
+    first,second = box_mesh((10,6,6)),box_mesh((10,6,6))
+    first.vertices[:,0] -= 15
+    second.vertices[:,0] += 15
+    mesh = cavity_mesh(box_mesh((60,20,20)),[first,second])
+    assert mesh.components == 3
+    mesh.validate_single_solid()
+
+
+@pytest.mark.parametrize('offset,intersects',[(.1,True),(1.5,False)])
+def test_coplanar_surfaces_detect_overlap(offset,intersects):
+    from backend.geometry import _surfaces_intersect
+    triangle = np.array([[[0.,0.,0.],[2.,0.,0.],[0.,2.,0.]]])
+    other = triangle*.5+np.array([offset,offset,0])
+    assert _surfaces_intersect(triangle,other,other.min(axis=1),other.max(axis=1),1e-8) == intersects
+
+
+def test_enclosed_surface_validation_respects_work_budget(monkeypatch):
+    monkeypatch.setattr('backend.geometry.MAX_SHELL_CHECKS',1)
+    mesh = cavity_mesh(box_mesh((60,20,20)),[box_mesh((20,6,6))])
+    with pytest.raises(SimulationError,match='enclosed surfaces exceeds the quick mesh limit'):
+        create_volume(mesh)
+
+
 def test_thin_connected_part_is_refined_before_rejecting():
     from scipy import ndimage
     mesh = thin_channel_mesh()
@@ -184,3 +266,38 @@ def test_refinement_respects_budget_and_explains_resolution_limit(monkeypatch):
 def test_unresolved_thickness_reports_mesh_limit():
     with pytest.raises(SimulationError,match='cannot resolve'):
         create_volume(box_mesh((60,12,.01)))
+
+
+def test_mixed_winding_cannot_inflate_print_stiffness():
+    mesh = box_mesh((60,20,20))
+    triangles = mesh.triangles.copy()
+    triangles[:6] = triangles[:6, ::-1]
+    mixed = read_stl(write_binary_stl(triangles))
+    assert mixed.is_watertight and not mixed.has_consistent_winding
+    with pytest.raises(SimulationError,match='triangle directions'):
+        printed_elasticity(MATERIALS['generic-pla'],PrintSettings(infill=10),mixed)
+    with pytest.raises(SimulationError,match='triangle directions'):
+        create_volume(mixed)
+    # A consistently inward-facing export has the same enclosed volume.
+    inward = read_stl(write_binary_stl(mesh.triangles[:, ::-1]))
+    assert inward.has_consistent_winding
+    _, a = printed_elasticity(MATERIALS['generic-pla'],PrintSettings(infill=10),mesh)
+    _, b = printed_elasticity(MATERIALS['generic-pla'],PrintSettings(infill=10),inward)
+    assert a == b
+
+
+def test_extreme_finite_vectors_carry_the_requested_force(bracket):
+    mesh, volume = bracket
+    request = bracket_request()
+    # Also check solver defenses when a caller mutates an already validated model.
+    request.direction = (1e308,1e308,-1e308)
+    request.load.normal = (0,0,1e308)
+    result = solve(volume,mesh,MATERIALS['generic-pla'],request)
+    expected = -np.array([1,1,-1])/np.sqrt(3)*result['force_newtons']
+    assert result['checks']['reaction_newtons'] == pytest.approx(expected,abs=1e-6)
+    assert result['checks']['relative_force_balance'] < 1e-8
+    assert result['max_displacement_mm'] > 0
+    assert max(result['stress']) > 0
+    validated = SimulationRequest.model_validate(request.model_dump())
+    assert np.linalg.norm(validated.direction) == pytest.approx(1)
+    assert validated.load.normal == (0,0,1)

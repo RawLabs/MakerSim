@@ -1,0 +1,29 @@
+[Unit]
+Description=Cloudflare Tunnel for MakerSim VM only
+After=network-online.target makersim.service
+Wants=network-online.target
+Requires=makersim.service
+
+[Service]
+User=cloudflared
+ExecStart=/usr/bin/cloudflared --no-autoupdate --config /etc/cloudflared/config.yml tunnel run
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=256M
+TasksMax=64
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

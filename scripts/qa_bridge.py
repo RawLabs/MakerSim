@@ -5,7 +5,7 @@ import sys
 from fastapi.testclient import TestClient
 from backend.app import app
 
-with TestClient(app) as client:
+with TestClient(app, base_url='https://makersim.local') as client:
     for line in sys.stdin:
         try:
             request=json.loads(line)

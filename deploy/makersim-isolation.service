@@ -1,0 +1,12 @@
+[Unit]
+Description=Block MakerSim VM access to Legion and private networks
+Before=libvirtd.service virtqemud.service virtnetworkd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/libexec/makersim-firewall
+# Deliberately retain rules when stopped; stopping a service must not expose the host.
+
+[Install]
+WantedBy=multi-user.target

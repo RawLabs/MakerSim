@@ -1,0 +1,20 @@
+<domain type='kvm'>
+  <name>makersim</name>
+  <memory unit='MiB'>4096</memory>
+  <vcpu>2</vcpu>
+  <os><type arch='x86_64' machine='q35'>hvm</type><boot dev='hd'/></os>
+  <features><acpi/><apic/></features>
+  <cpu mode='host-model'/>
+  <clock offset='utc'/>
+  <on_poweroff>destroy</on_poweroff><on_reboot>restart</on_reboot><on_crash>destroy</on_crash>
+  <devices>
+    <emulator>/usr/bin/qemu-system-x86_64</emulator>
+    <disk type='file' device='disk'><driver name='qemu' type='qcow2'/><source file='/var/lib/libvirt/images/makersim/system.qcow2'/><target dev='vda' bus='virtio'/></disk>
+    <disk type='file' device='cdrom'><driver name='qemu' type='raw'/><source file='/var/lib/libvirt/images/makersim/seed.iso'/><target dev='sda' bus='sata'/><readonly/></disk>
+    <interface type='network'><mac address='52:54:00:4d:53:01'/><source network='makersim-net'/><model type='virtio'/></interface>
+    <serial type='pty'><log file='/var/log/libvirt/qemu/makersim-serial.log' append='on'/><target port='0'/></serial>
+    <console type='pty'><target type='serial' port='0'/></console>
+    <controller type='usb' model='none'/>
+    <memballoon model='none'/>
+  </devices>
+</domain>

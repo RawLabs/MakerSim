@@ -7,15 +7,27 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-0.1.0--playground-60A5FA" alt="Version 0.1.0 playground">
-  <img src="https://img.shields.io/badge/processing-local-334155" alt="Local processing">
+  <img src="https://img.shields.io/badge/demo-live%20playground-334155" alt="Live playground demo">
   <img src="https://img.shields.io/badge/backend-Python%20%2B%20FastAPI-009688" alt="Python and FastAPI backend">
   <img src="https://img.shields.io/badge/viewer-Three.js%20%2B%20Vite-0F172A" alt="Three.js and Vite viewer">
 </p>
 
+<p align="center">
+  <a href="https://makersim.rawcastdigital.com/"><strong>Live demo</strong></a> ·
+  <a href="https://makersim-playground.rawcastdigital.com/">Open the playground</a> ·
+  <a href="https://shftstate.rawcastdigital.com/#contact">Request a testing session</a>
+</p>
+
+[![MakerSim landing page with a rotatable 3D bracket, held mounting points, a downward pull, and relative stress colors](artifacts/landing-hero.png)](https://makersim.rawcastdigital.com/)
+
 MakerSim helps makers explore how a force travels through a 3D-printed part.
 Upload an STL, choose your filament and print settings, paint the surfaces held
-still, and place a pull. A local elasticity solver returns a relative stress
+still, and place a pull. An elasticity solver returns a relative stress
 heatmap and an optional exaggerated movement preview.
+
+The landing page stays available when the testing server is offline. Its 3D hero
+uses a precomputed result from the included bracket; the playground runs your
+own simulation when the server is online. You can also run MakerSim locally.
 
 **Version 0.1.0 is an early playground checkpoint.** STL viewing, painted holds,
 distributed loads, print-property assumptions, and simulation are implemented.
@@ -67,10 +79,32 @@ and solver from one local Python process. Existing services on other ports are
 left running. The source launcher is intended for Linux and other environments
 with Bash; a native Windows launcher is not included.
 
-MakerSim runs on `127.0.0.1`. Uploaded parts stay in the local process rather than
-being sent to an external service. The workspace retains at most six models;
+The local launcher runs on `127.0.0.1`. Uploaded parts stay in the local process.
+Each browser retains its last two uploads, within a six-model server budget;
 models expire after two hours and disappear when the process stops. Dependencies
 need internet access for their initial installation; Three.js is bundled locally.
+
+### Hosted playground
+
+Visit [makersim.rawcastdigital.com](https://makersim.rawcastdigital.com/) for the
+live demo and server availability. Cloudflare serves the landing page independently
+of the [playground](https://makersim-playground.rawcastdigital.com/), which runs
+on an isolated preview server through its own Cloudflare Tunnel. If the server
+is offline, [request a testing session through ShftState](https://shftstate.rawcastdigital.com/#contact).
+
+There is no account or database. A random HTTP-only browser cookie identifies
+each temporary workspace; another workspace cannot solve or evict its parts.
+Visitors should use non-sensitive designs. Multipart parsing can use temporary
+files; models and results are not saved as permanent documents. Hosted parts
+expire after 15 minutes and a one-minute cleanup removes expired models from
+memory. The trial admits twelve models globally and two per workspace, two
+concurrent uploads, and one simulation at a time. Uploads are at most 20 MB;
+request bodies, mesh sizes, and requests per client are bounded.
+
+For VM isolation, provisioning, updates, and start/stop commands, see
+[the deployment guide](deploy/README.md). Existing sites and SSH tunnels remain
+separate. Keep tunnel credentials and generated provisioning disks outside the
+checkout.
 
 ## Demo screens
 
@@ -83,6 +117,19 @@ geometry and loading are a demonstration, not a validated bracket design.
 
 Warm colors identify concentrated stress within this run. Colors rescale with
 each simulation and are not a failure scale.
+
+### Small hook: simulation and real life
+
+<p align="center">
+  <img src="artifacts/MSRealLifeTest.png" alt="MakerSim poster comparing a small hook's simulated stress preview with a photograph of the permanently bent printed hook" width="680">
+</p>
+
+The physical hook retained a bend after holding a sweater and a pair of pants
+overnight. Its material was believed to be PETG; the load was not weighed, and
+the hook was subsequently heated in an attempt to reshape it. This is a
+qualitative comparison, not a controlled validation. MakerSim shows an elastic
+response with exaggerated movement; it does not model creep, temperature effects,
+or permanent deformation over time.
 
 <details>
 <summary>Start a new part — center upload prompt</summary>
@@ -120,7 +167,12 @@ the previous result so the displayed preview matches the current setup.
 STLs do not declare their units. MakerSim defaults to millimetres; choose inches
 when appropriate and check the displayed dimensions. Files can contain up to
 20 MB and 120,000 triangles. Open surfaces can be viewed but must be repaired
-before solving. Simulation requires one connected, closed solid.
+before solving. Simulation requires one connected, closed solid with consistent
+triangle winding. Inconsistent triangle directions produce a repair message
+before they can affect the print-property estimate. A hollow solid may have
+separate closed surfaces around enclosed cavities; those are accepted after
+containment checks. Disconnected solids, overlapping cavities, and touching
+or crossing cavity surfaces remain rejected.
 
 ## Physics and limits
 
@@ -153,6 +205,10 @@ contact areas also approximate the coarse volume. A part whose connections
 cannot be resolved within the mesh budget needs thicker features or simpler
 geometry for this preview.
 
+One default-mesh cantilever benchmark understated bending movement by about 23%
+against its beam-theory reference using the meshed dimensions. Error varies with
+geometry; this is not a correction factor for other parts.
+
 ### Print assumptions
 
 Print settings use a heuristic effective solid fraction from walls, solid layers,
@@ -163,8 +219,8 @@ XY/Z moduli and in-plane shear stiffness; build-axis shear is estimated.
 The build direction can be X, Y, or Z. Arbitrary rotations, explicit rasters,
 individual strands, slicer toolpaths, and delamination are not modeled. Flexible
 materials and large movements are especially approximate. There are no failure
-predictions, certified loads, yield/plasticity, contact, buckling, impact, or
-large-deformation analysis.
+predictions, certified loads, yield/plasticity, creep, temperature effects,
+contact, buckling, impact, or large-deformation analysis.
 
 ## Material sources and provenance
 
@@ -221,12 +277,13 @@ The frontend opens at **http://127.0.0.1:5173** and proxies `/api` to Python.
 
 | Path | Contents |
 | --- | --- |
-| `backend/` | Local API, STL parsing, material adapter, and elasticity solver. |
+| `backend/` | Local and hosted API, STL parsing, material adapter, and elasticity solver. |
 | `backend/data/` | Example STL, archived materials, generic baselines, and their license. |
 | `frontend/` | Vite workspace, UI, viewer, and bundled Three.js. |
+| `deploy/` | Static landing page, 3D hero sources, and isolated VM deployment files. |
 | `scripts/` | Launcher, checks, example generation, and browser QA transport. |
 | `tests/` | Solver, API, launcher, and viewer interaction checks. |
-| `artifacts/` | Supplied brand sheet and application screenshots. |
+| `artifacts/` | Brand sheet, landing hero, application screenshots, and the real-life hook comparison poster. |
 
 ## Verification
 
@@ -237,10 +294,13 @@ From the repository root:
 ```
 
 This runs the Python suite, real Three.js interaction checks integrated with
-solver output, and the production build. The current checkpoint passes 31 Python
+solver output, and the production build. The current checkpoint passes 54 Python
 tests, including affine tetrahedral strain, an analytical axial bar, equilibrium,
 doubled-load scaling, orientation, print settings, retained holes, patch spreading,
-thin-feature refinement, mesh-budget limits, and invalid inputs.
+thin-feature refinement, enclosed cavities, shell containment and intersection,
+mesh-budget limits, mixed winding, extreme direction
+vectors, nonfinite JSON validation, atomic model storage, browser workspace
+isolation, streamed body limits, hosted rate limits, and upload concurrency.
 
 In-process HTTP tests run worker functions inline because the restricted build
 environment blocks cross-thread wakeup sockets; those tests do not verify worker

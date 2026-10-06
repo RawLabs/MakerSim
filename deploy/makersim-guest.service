@@ -1,0 +1,37 @@
+[Unit]
+Description=MakerSim experimental playground
+After=network.target
+
+[Service]
+User=makersim
+WorkingDirectory=/opt/makersim
+Environment=MAKERSIM_HOSTED=1
+Environment=MAKERSIM_ALLOWED_HOSTS=makersim-playground.rawcastdigital.com,127.0.0.1,localhost
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=OMP_NUM_THREADS=1
+ExecStart=/opt/makersim/.venv/bin/python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000 --workers 1 --no-access-log --limit-concurrency 16 --timeout-keep-alive 5 --proxy-headers --forwarded-allow-ips 127.0.0.1
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressDeny=any
+IPAddressAllow=localhost
+MemoryMax=1536M
+CPUQuota=100%
+TasksMax=64
+LimitCORE=0
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,6 +1,6 @@
 async function responseJson(response) {
   if (!response.ok) {
-    let message = `The local service returned ${response.status}.`;
+    let message = `The solver service returned ${response.status}.`;
     try {
       const body = await response.json();
       message = typeof body.detail === 'string' ? body.detail : 'Check the print settings, selected areas, and force value.';

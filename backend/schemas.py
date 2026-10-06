@@ -6,6 +6,19 @@ import math
 Finite = Annotated[float, Field(allow_inf_nan=False)]
 
 
+def normalized_vector(value, message):
+    if not all(math.isfinite(x) for x in value):
+        raise ValueError(message)
+    largest = max(abs(x) for x in value)
+    if largest == 0:
+        raise ValueError(message)
+    scaled = tuple(x / largest for x in value)
+    length = math.hypot(*scaled)
+    if largest < 1e-8 / length:
+        raise ValueError(message)
+    return tuple(x / length for x in scaled)
+
+
 class Patch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     point: tuple[Finite, Finite, Finite]
@@ -15,9 +28,7 @@ class Patch(BaseModel):
     @field_validator("normal")
     @classmethod
     def nonzero_normal(cls, value):
-        if math.sqrt(sum(x*x for x in value)) < 1e-8:
-            raise ValueError("A patch needs a surface normal.")
-        return value
+        return normalized_vector(value, "A patch needs a finite, nonzero surface normal.")
 
 
 class PrintSettings(BaseModel):
@@ -43,9 +54,7 @@ class SimulationRequest(BaseModel):
     @field_validator("direction")
     @classmethod
     def nonzero_direction(cls, value):
-        if math.sqrt(sum(x*x for x in value)) < 1e-8:
-            raise ValueError("Drag the force arrow or choose a direction.")
-        return value
+        return normalized_vector(value, "Drag the force arrow or choose a finite, nonzero direction.")
 
 
 def force_newtons(magnitude: float, unit: str) -> float:

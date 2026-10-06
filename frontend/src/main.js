@@ -12,10 +12,11 @@ const escape=(text)=>String(text).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;'
 $('app').innerHTML=`
   <header class="topbar">
     <a class="brand" href="/" aria-label="MakerSim home"><svg class="brand-mark" viewBox="79 742 161 153" aria-hidden="true" focusable="false"><image href="${brandArtwork}" width="1536" height="1024" /></svg><svg class="brand-wordmark" viewBox="96 508 675 80" aria-hidden="true" focusable="false"><image href="${brandArtwork}" width="1536" height="1024" /></svg><span class="version">PLAYGROUND</span></a>
-    <div class="top-actions"><span class="local-status"><i></i> Local workspace</span><button id="help" class="quiet-button">${icon('help')} How it works</button></div>
+    <div class="top-actions"><span class="local-status"><i></i><span id="workspace-status">Local workspace</span></span><button id="help" class="quiet-button">${icon('help')} How it works</button></div>
   </header>
   <main class="workspace">
     <div class="intro"><div><div class="eyebrow">A LITTLE CURIOSITY. A BETTER PRINT.</div><h1>Follow the force<span>.</span></h1><p>Hold it here. Pull it there. See what your part is doing.</p></div><div class="intro-note">${icon('layers')} Made for makers.<br><span>Built for exploring.</span></div></div>
+    <aside class="trial-note" aria-label="Preview limits"><strong>Experimental design preview</strong><p>Explore load paths and design ideas. Results do not predict failure or establish safe working loads.</p><p id="upload-privacy">STLs are processed on this computer and kept temporarily in memory.</p></aside>
     <nav class="flow" aria-label="Simulation workflow">
       ${[['upload','Upload'],['print','Set print'],['hold','Hold here'],['pull','Pull here'],['run','Simulate']].map(([id,label],i)=>`<div class="flow-step ${i===0?'active':''}" id="step-${id}"><span class="flow-dot">${i+1}</span>${label}</div>${i<4?icon('arrow','flow-arrow'):''}`).join('')}
     </nav>
@@ -76,7 +77,7 @@ $('app').innerHTML=`
         <div class="result-panel" id="result-panel" hidden>
           <div class="result-heading"><span class="result-icon">${icon('spark')}</span><div><h3>The force has a story.</h3><p>Warm areas carry more concentrated stress in this run.</p></div><span class="result-complete">${icon('check')} Solved</span></div>
           <div class="result-controls"><div class="result-tabs" role="group" aria-label="Model display"><button id="show-heatmap" class="selected">Stress heatmap</button><button id="show-original">Original part</button></div><label class="switch-label"><input id="deformation" type="checkbox"/><span class="switch"></span>Show movement</label></div>
-          <div class="result-note">${icon('info')}<p>Look for concentrated colour around necks, holes and inside corners. Try a fillet, rib or thicker section in your next design.</p></div>
+          <div class="result-note">${icon('info')}<p>Look for concentrated colour around necks, holes and inside corners. This coarse mesh can understate bending movement; colours and movement are approximate design cues.</p></div>
           <details class="result-details"><summary>About this preview</summary><p id="result-mesh"></p><ul id="result-notes"></ul><p>Colours rescale for each run. A stronger colour means higher relative stress, not a failure prediction.</p></details>
         </div>
       </section>
@@ -126,8 +127,8 @@ function updateSelections() {
   $('pull-count').textContent=load?'Pull placed':'No pull yet';
   $('undo-hold').disabled=state.busy||!count;$('clear-selection').disabled=state.busy||(!count&&!load);
   $('hold-tool').disabled=$('pull-tool').disabled=state.busy||!model;
-  $('simulate').disabled=state.busy||!model||!count||!load||!settingsValid()||!state.model.watertight;
-  $('run-hint').textContent=state.busy?'A little patience. The force is finding its way.':!model?'Add a part, a hold and a pull to get started.':!state.model.watertight?'Repair the open STL surface before simulating.':!count?'Choose Hold here and paint a mounted area.':!load?'Choose Pull here and place a force on the part.':!settingsValid()?'Enter valid print settings and a positive force.':'Ready when you are. See where the load goes.';
+  $('simulate').disabled=state.busy||!model||!count||!load||!settingsValid()||!state.model.simulation_ready;
+  $('run-hint').textContent=state.busy?'A little patience. The force is finding its way.':!model?'Add a part, a hold and a pull to get started.':!state.model.simulation_ready?state.model.notes[0]:!count?'Choose Hold here and paint a mounted area.':!load?'Choose Pull here and place a force on the part.':!settingsValid()?'Enter valid print settings and a positive force.':'Ready when you are. See where the load goes.';
   const done=[model,model,count>0,load,!!state.result];
   ['upload','print','hold','pull','run'].forEach((name,i)=>{
     $(`step-${name}`).classList.toggle('done',!!done[i]);
@@ -240,13 +241,17 @@ $('help').onclick=()=>$('help-dialog').showModal();['close-help','help-done'].fo
 $('help-dialog').addEventListener('click',e=>{if(e.target===$('help-dialog'))$('help-dialog').close();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&viewer)setMode('orbit');});
 
-getMaterials().then(({materials})=>{
+getMaterials().then(({materials,workspace})=>{
   state.materials=materials;
+  if(workspace?.hosted){
+    $('workspace-status').textContent='Public preview';
+    $('upload-privacy').textContent=`Your STL is uploaded to an isolated preview server. Parts expire after ${workspace.retention_minutes} minutes and are cleared from memory on the next one-minute cleanup. Use non-sensitive designs. Your browser has a separate temporary workspace.`;
+  }
   const generic=materials.filter(m=>m.brand==='Generic').sort((a,b)=>a.name.localeCompare(b.name));
   const branded=materials.filter(m=>m.brand!=='Generic').sort((a,b)=>(a.brand+a.name).localeCompare(b.brand+b.name));
   const options=(list)=>list.map(m=>`<option value="${escape(m.id)}" ${m.supported?'':'disabled'}>${escape((m.brand==='Generic'?'':m.brand+' · ')+m.name)}${m.supported?'':' · not supported in v1'}</option>`).join('');
   $('material').innerHTML=`<optgroup label="FDM baselines">${options(generic)}</optgroup><optgroup label="MakerSim material archive">${options(branded)}</optgroup>`;
   $('material').value='generic-pla';updateMaterial();updateSelections();
-}).catch(()=>{showNotice('The local solver is unavailable. Start the MakerSim Python service, then reload this page.');$('material').innerHTML='<option>Solver service unavailable</option>';$('material').disabled=true;});
+}).catch(()=>{showNotice('The solver service is unavailable. Please reload shortly.');$('material').innerHTML='<option>Solver service unavailable</option>';$('material').disabled=true;});
 updateForce();updateRadius();
 window.addEventListener('pagehide',()=>viewer?.dispose());
