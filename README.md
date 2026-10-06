@@ -87,10 +87,8 @@ need internet access for their initial installation; Three.js is bundled locally
 ### Hosted playground
 
 Visit [makersim.rawcastdigital.com](https://makersim.rawcastdigital.com/) for the
-live demo and server availability. Cloudflare serves the landing page independently
-of the [playground](https://makersim-playground.rawcastdigital.com/), which runs
-on an isolated preview server through its own Cloudflare Tunnel. If the server
-is offline, [request a testing session through ShftState](https://shftstate.rawcastdigital.com/#contact).
+live demo and server availability. If the server is offline, 
+[request a testing session through ShftState](https://shftstate.rawcastdigital.com/#contact).
 
 There is no account or database. A random HTTP-only browser cookie identifies
 each temporary workspace; another workspace cannot solve or evict its parts.
@@ -100,11 +98,6 @@ expire after 15 minutes and a one-minute cleanup removes expired models from
 memory. The trial admits twelve models globally and two per workspace, two
 concurrent uploads, and one simulation at a time. Uploads are at most 20 MB;
 request bodies, mesh sizes, and requests per client are bounded.
-
-For VM isolation, provisioning, updates, and start/stop commands, see
-[the deployment guide](deploy/README.md). Existing sites and SSH tunnels remain
-separate. Keep tunnel credentials and generated provisioning disks outside the
-checkout.
 
 ## Demo screens
 
