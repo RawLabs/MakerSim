@@ -1,0 +1,23 @@
+const paths = {
+  cube: '<path d="m12 3 9 5v8l-9 5-9-5V8l9-5Z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
+  upload: '<path d="M12 16V4m-4 4 4-4 4 4M4 16v4h16v-4"/>',
+  arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>',
+  mouse: '<rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 3v6"/>',
+  hand: '<path d="M8 12V6a2 2 0 0 1 4 0v6-7a2 2 0 0 1 4 0v7-5a2 2 0 0 1 4 0v8c0 4-3 6-7 6h-1c-2 0-3-1-4-3l-4-6a2 2 0 0 1 3-2l1 2Z"/>',
+  pull: '<path d="M4 20 20 4M10 4h10v10"/><circle cx="5" cy="19" r="2"/>',
+  play: '<path d="m8 4 12 8-12 8V4Z"/>',
+  check: '<path d="m5 12 4 4L19 6"/>',
+  close: '<path d="m6 6 12 12M6 18 18 6"/>',
+  undo: '<path d="M3 8h10a7 7 0 0 1 0 14M3 8l5-5M3 8l5 5"/>',
+  expand: '<path d="M9 3H3v6m12-6h6v6M3 15v6h6m12-6v6h-6"/>',
+  rotate: '<path d="M20 8a9 9 0 1 0 1 7M20 3v5h-5"/>',
+  grid: '<path d="M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18"/>',
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4m0 3h.01"/>',
+  file: '<path d="M14 3H5v18h14V8l-5-5Z"/><path d="M14 3v5h5M8 13h8M8 17h5"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10h.01"/>',
+  layers: '<path d="m12 3 10 5-10 5L2 8l10-5ZM2 12l10 5 10-5M2 16l10 5 10-5"/>',
+  spark: '<path d="m12 2 3 7 7 3-7 3-3 7-3-7-7-3 7-3 3-7Z"/>',
+  down: '<path d="M12 4v16m-6-6 6 6 6-6"/>',
+  move: '<path d="M12 3v18M3 12h18m-12-6 3-3 3 3m-6 12 3 3 3-3M6 9l-3 3 3 3m12-6 3 3-3 3"/>',
+};
+export const icon = (name, cls='') => `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]||paths.cube}</svg>`;
