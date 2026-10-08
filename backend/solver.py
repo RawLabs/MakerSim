@@ -64,7 +64,13 @@ def strain_matrix(points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return b, volume
 
 
-def create_volume(mesh: TriangleMesh, resolution: int = 28) -> VolumeMesh:
+def create_volume(mesh: TriangleMesh, resolution: int = 28, *, max_cells: int | None = None,
+                  strict_pitch: bool = False) -> VolumeMesh:
+    budget = MAX_CELLS if max_cells is None else max_cells
+    if type(resolution) is not int or not 8 <= resolution <= 100:
+        raise SimulationError("Mesh resolution must be an integer between 8 and 100.")
+    if type(budget) is not int or not 4 <= budget <= 20000:
+        raise SimulationError("Mesh cell budget must be an integer between 4 and 20000.")
     if not mesh.is_watertight:
         raise SimulationError("This STL has an open surface. Repair it before simulating.")
     if not mesh.has_consistent_winding:
@@ -78,9 +84,11 @@ def create_volume(mesh: TriangleMesh, resolution: int = 28) -> VolumeMesh:
     for _ in range(8):
         occupancy, origin = voxelize(mesh, pitch)
         count = int(occupancy.sum())
-        if count <= MAX_CELLS:
+        if count <= budget:
             break
-        pitch *= max(1.12, (count / MAX_CELLS) ** (1/3) * 1.02)
+        if strict_pitch:
+            raise SimulationError("Requested refinement exceeds the cell budget. Increase max_cells or reduce resolution.")
+        pitch *= max(1.12, (count / budget) ** (1/3) * 1.02)
     else:
         raise SimulationError("This part is too complex for a quick mesh. Try a simpler STL.")
     # A connected STL can lose thin walls or bridges when sampled coarsely.
@@ -95,7 +103,7 @@ def create_volume(mesh: TriangleMesh, resolution: int = 28) -> VolumeMesh:
         pitch /= 1.2
         occupancy, origin = voxelize(mesh, pitch)
         count = int(occupancy.sum())
-        if count > MAX_CELLS:
+        if count > budget:
             raise SimulationError("Resolving this part's thin walls or connections exceeds the quick mesh limit. Try a thicker version or a simpler part.")
     indices = np.argwhere(occupancy)
     lattice, inverse = np.unique((indices[:, None, :] + CORNERS).reshape(-1, 3), axis=0, return_inverse=True)

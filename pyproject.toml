@@ -9,7 +9,23 @@ dependencies = [
   "python-multipart>=0.0.20,<1",
   "numpy>=2.2,<3",
   "scipy>=1.15,<2",
+  "mcp>=1.28,<2",
+  "matplotlib>=3.10,<4",
 ]
+
+[project.scripts]
+makersim = "backend.cli:main"
+makersim-mcp = "backend.mcp_server:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["backend"]
+
+[tool.setuptools.package-data]
+backend = ["data/*.json", "data/*.csv", "data/*.stl", "data/BASELINE_LICENSE"]
 
 [dependency-groups]
 dev = ["pytest>=8,<10", "httpx>=0.28,<1"]

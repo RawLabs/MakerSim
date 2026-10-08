@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "name": "Backpack bracket displacement test",
+  "stl_unit": "mm",
+  "coordinate_frame": "source_mm",
+  "material_id": "generic-pla",
+  "print_settings": {"walls": 3, "top_layers": 4, "bottom_layers": 4, "infill": 20, "orientation": "z"},
+  "fixtures": [
+    {"point": [0, -8, 18], "normal": [0, -1, 0], "radius": 7},
+    {"point": [0, -8, 39], "normal": [0, -1, 0], "radius": 7}
+  ],
+  "load_cases": [
+    {"name": "5 lb down", "load": {"point": [58, 0, 8], "normal": [0, 0, 1], "radius": 6}, "direction": [0, 0, -1], "magnitude": 5, "unit": "lbf", "max_displacement_mm": 1},
+    {"name": "50 lb down", "load": {"point": [58, 0, 8], "normal": [0, 0, 1], "radius": 6}, "direction": [0, 0, -1], "magnitude": 50, "unit": "lbf", "max_displacement_mm": 1}
+  ],
+  "surface_probes": [
+    {"name": "Loaded tip", "point": [58, 0, 8], "normal": [0, 0, 1], "radius": 6}
+  ]
+}

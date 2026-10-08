@@ -3,7 +3,7 @@
 Voxel centres are classified by triangle ray intersections. Surface geometry
 is retained exactly for the viewer; only the solver volume is coarse.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import re
 import struct
 
@@ -17,6 +17,7 @@ MAX_SHELL_CHECKS = 64_000_000
 class TriangleMesh:
     vertices: np.ndarray
     faces: np.ndarray
+    source_center_mm: np.ndarray = field(default_factory=lambda: np.zeros(3))
 
     @property
     def triangles(self):
@@ -216,11 +217,12 @@ def read_stl(data: bytes, unit: str = 'mm') -> TriangleMesh:
     # Float STL exports often repeat vertices with slight rounding differences.
     decimals = max(0, int(8 - np.log10(span.max())))
     vertices, inverse = np.unique(np.round(triangles.reshape(-1,3), decimals), axis=0, return_inverse=True)
-    vertices -= (vertices.min(axis=0) + vertices.max(axis=0))/2
+    source_center = (vertices.min(axis=0) + vertices.max(axis=0))/2
+    vertices -= source_center
     faces = inverse.reshape(-1,3)
     t = vertices[faces]
     valid = np.linalg.norm(np.cross(t[:,1]-t[:,0], t[:,2]-t[:,0]), axis=1) > span.max()**2 * 1e-12
-    return TriangleMesh(vertices, faces[valid])
+    return TriangleMesh(vertices, faces[valid], source_center)
 
 
 def voxelize(mesh: TriangleMesh, pitch: float) -> tuple[np.ndarray, np.ndarray]:
