@@ -35,7 +35,7 @@ await context.route('**/*',async route=>{
   try {await route.fulfill({status:200,contentType:mime[extname(path)]||'application/octet-stream',body:await readFile(path)});}
   catch {await route.fulfill({status:404,body:'Not found'});}
 });
-const shots=resolve(root,'artifacts');await mkdir(shots,{recursive:true});
+const shots=resolve(process.env.MAKERSIM_QA_ARTIFACTS||resolve(root,'artifacts'));await mkdir(shots,{recursive:true});
 // File-backed multipart bodies omit their file bytes from Playwright's route
 // request data. Use bytes so the in-process API transport gets the whole STL.
 const bracketUpload={name:'backpack-bracket.stl',mimeType:'model/stl',buffer:await readFile(resolve(root,'backend/data/backpack-bracket.stl'))};
@@ -60,6 +60,7 @@ try {
   assert.equal(await page.locator('#file-name').innerText(),'backpack-bracket.stl');
   assert.equal(await page.locator('#part-card').isVisible(),true);
   assert.equal(await page.locator('#viewer-upload').isVisible(),false);
+  await page.locator('#force').fill('5');
   await page.locator('#simulate').click();
   await page.locator('#result-panel').waitFor({state:'visible',timeout:60000});
   assert.equal(await page.locator('#heatmap-legend').isVisible(),true);
@@ -70,10 +71,34 @@ try {
   await page.locator('.switch-label').click();
   assert.equal(await page.locator('#deformation').isChecked(),true);
   assert.equal(await page.locator('#deformation-label').isVisible(),true);
+  assert.equal(await page.locator('#movement-scale').inputValue(),'1');
+  assert.match(await page.locator('#deformation-label').innerText(),/actual scale · 1×/);
+  const readMovement=async()=>Number((await page.locator('#result-movement').innerText()).replace(/,/g,'').replace(' mm',''));
+  const smallMovement=await readMovement();
+  assert.ok(smallMovement>0);
+  assert.match(await page.locator('#result-force').innerText(),/22.24 N/);
+  const smallStress=Number((await page.locator('#result-stress').innerText()).replace(/,/g,'').replace(' MPa',''));
+  await page.locator('#movement-scale').selectOption('0.01');
+  assert.match(await page.locator('#deformation-label').innerText(),/reduced 0.01×/);
+  assert.equal(await readMovement(),smallMovement,'Display scaling must not change the calculated movement');
+  await page.locator('#movement-scale').selectOption('10');
+  assert.match(await page.locator('#deformation-label').innerText(),/exaggerated 10×/);
+  await page.screenshot({path:resolve(shots,'workspace-movement-5lb.png'),fullPage:true});
   await page.locator('.switch-label').click();
   assert.equal(await page.locator('#deformation').isChecked(),false);
   await page.locator('#force').fill('50');
   assert.equal(await page.locator('#result-panel').isVisible(),false);
+  await page.locator('#simulate').click();
+  await page.locator('#result-panel').waitFor({state:'visible',timeout:60000});
+  assert.equal(await page.locator('#movement-scale').inputValue(),'10','The display scale stays fixed across load changes');
+  const largeMovement=await readMovement();
+  assert.ok(Math.abs(largeMovement/smallMovement-10)<.01,'50 lb must calculate ten times the movement of 5 lb');
+  const largeStress=Number((await page.locator('#result-stress').innerText()).replace(/,/g,'').replace(' MPa',''));
+  assert.ok(Math.abs(largeStress/smallStress-10)<.01);
+  await page.locator('.switch-label').click();
+  assert.match(await page.locator('#deformation-label').innerText(),/exaggerated 10×/);
+  await page.screenshot({path:resolve(shots,'workspace-movement-50lb.png'),fullPage:true});
+  console.log(`Load comparison passed: 5 lb → ${smallMovement} mm; 50 lb → ${largeMovement} mm, both displayed at 10×.`);
   await page.locator('#clear-selection').click();
   assert.equal(await page.locator('#simulate').isDisabled(),true);
 
@@ -119,6 +144,7 @@ try {
   await page.waitForFunction(()=>document.querySelector('#busy-overlay').hidden);
   await page.waitForFunction(()=>document.querySelector('#hold-count').textContent==='No holds yet');
   assert.equal(await page.locator('#pull-count').innerText(),'No pull yet');
+  assert.equal(await page.locator('#movement-scale').inputValue(),'1');
   await page.locator('#stl-unit').selectOption('inch');
   await page.waitForFunction(()=>document.querySelector('#file-dimensions').textContent.includes('2006.6'));
   await page.locator('#stl-unit').selectOption('mm');

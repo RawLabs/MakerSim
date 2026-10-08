@@ -53,15 +53,16 @@ def test_tetrahedron_reproduces_affine_strain():
 
 def test_bracket_balance_and_linear_load_scaling(bracket):
     mesh,volume=bracket
-    a=solve(volume,mesh,MATERIALS['generic-pla'],bracket_request(25))
+    a=solve(volume,mesh,MATERIALS['generic-pla'],bracket_request(5))
     b=solve(volume,mesh,MATERIALS['generic-pla'],bracket_request(50))
     assert a['patches']['loaded_nodes']>=3
     assert a['checks']['relative_residual']<1e-8
-    assert a['checks']['reaction_newtons']==pytest.approx([0,0,force_newtons(25,'lbf')],abs=1e-6)
-    assert np.array(b['displacement'])==pytest.approx(np.array(a['displacement'])*2,abs=1e-9)
-    assert np.array(b['stress'])==pytest.approx(np.array(a['stress'])*2,abs=1e-9)
+    assert a['checks']['reaction_newtons']==pytest.approx([0,0,force_newtons(5,'lbf')],abs=1e-6)
+    assert b['max_displacement_mm']==pytest.approx(a['max_displacement_mm']*10)
+    assert np.array(b['displacement'])==pytest.approx(np.array(a['displacement'])*10,abs=1e-9)
+    assert np.array(b['stress'])==pytest.approx(np.array(a['stress'])*10,abs=1e-9)
     # Normalisation changes with the load, so this is not a failure scale.
-    assert b['heatmap_scale_mpa']==pytest.approx(a['heatmap_scale_mpa']*2)
+    assert b['heatmap_scale_mpa']==pytest.approx(a['heatmap_scale_mpa']*10)
 
 
 def test_axial_bar_matches_simple_elastic_reference():

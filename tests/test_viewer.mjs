@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile,writeFile,mkdir } from 'node:fs/promises';
 import * as THREE from '../frontend/src/vendor/three.module.js';
 import { PartViewer } from '../frontend/src/viewer.js';
+import { formatQuantity, movementLabel } from '../frontend/src/result-display.js';
 
 // Exercise actual geometry, raycasting, pointer handlers and colour mapping.
 // Construction alone uses WebGL, unavailable in the execution sandbox.
@@ -59,9 +60,33 @@ assert.ok(Math.max(...viewer.stress)>Math.min(...viewer.stress));
 const before=new Float32Array(viewer.part.geometry.attributes.position.array);
 viewer.setDeformation(true);assert.ok(viewer.deform);assert.equal(viewer.markers.visible,false);
 assert.ok(viewer.part.geometry.attributes.position.array.some((v,i)=>Math.abs(v-before[i])>1e-5));
+assert.equal(viewer.deformationFactor(),1,'Movement defaults to actual millimetres');
+const movement=new Float32Array(viewer.part.geometry.attributes.position.array.map((v,i)=>v-before[i]));
+const colors=new Float32Array(viewer.colors);
+// Linear elasticity scales the whole field with load. The viewer must preserve
+// that change in size rather than normalizing each result to the same bend.
+const heavier={...result,force_newtons:result.force_newtons*10,
+  displacement:result.displacement.map(p=>p.map(v=>v*10)),
+  max_displacement_mm:result.max_displacement_mm*10,
+  stress:result.stress.map(v=>v*10),heatmap_scale_mpa:result.heatmap_scale_mpa*10};
+viewer.setResult(heavier);assert.deepEqual(viewer.part.geometry.attributes.position.array,before);
+viewer.setDeformation(true);
+for(let i=0;i<before.length;i++)assert.ok(Math.abs(viewer.part.geometry.attributes.position.array[i]-before[i]-movement[i]*10)<5e-5,'Ten times the load must show ten times the movement');
+assert.ok(viewer.colors.every((v,i)=>Math.abs(v-colors[i])<1e-5),'Relative stress colors can remain the same while absolute stress changes');
+viewer.setDeformationScale(.01);assert.equal(viewer.deformationFactor(),.01);
+assert.ok(viewer.part.geometry.attributes.position.array.some((v,i)=>Math.abs(v-before[i])>1e-5));
+viewer.setResult(result);viewer.setDeformation(true);
+assert.equal(viewer.deformationFactor(),.01,'Keep the chosen scale across reruns');
+for(let i=0;i<before.length;i++)assert.ok(Math.abs(viewer.part.geometry.attributes.position.array[i]-before[i]-movement[i]*.01)<5e-6);
+viewer.fit();assert.ok(viewer.controls.target.distanceTo(viewer.part.geometry.boundingSphere.center)<1e-8,'Fit must center the displayed movement');
+assert.equal(movementLabel(.01),'Movement reduced 0.01× · visual only');
+assert.equal(movementLabel(1),'Movement at actual scale · 1×');
+assert.equal(movementLabel(100),'Movement exaggerated 100× · visual only');
+assert.notEqual(formatQuantity(1e-9),'0','Do not round small movements to zero');
 viewer.clearResult();assert.deepEqual(viewer.part.geometry.attributes.position.array,before);
 assert.equal(viewer.markers.visible,true);assert.equal(viewer.result,null);
 viewer.undoHold();viewer.clearSelections();assert.equal(viewer.fixtures.length,0);assert.equal(viewer.load,null);
 await viewer.setFile(buffer,'inch');assert.ok(Math.abs(viewer.span-79*25.4)<1e-3);
+assert.equal(viewer.deformationFactor(),1,'A replacement part starts at actual scale');
 assert.ok(selections>2&&edits>1);
-console.log('Viewer interaction checks passed: STL fit, painting, arrow drag, real solver integration, heatmap, deformation, reset, inch scaling.');
+console.log('Viewer interaction checks passed: STL fit, painting, arrow drag, real solver integration, heatmap, proportional movement, fixed scales, reset, inch scaling.');

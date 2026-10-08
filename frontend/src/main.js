@@ -2,6 +2,7 @@ import './style.css';
 import { icon } from './icons.js';
 import { PartViewer } from './viewer.js';
 import { getMaterials, uploadModel, simulate } from './api.js';
+import { formatQuantity, movementLabel } from './result-display.js';
 import brandArtwork from '../../artifacts/MakerSimLogos.png';
 
 const $=(id)=>document.getElementById(id);
@@ -76,7 +77,9 @@ $('app').innerHTML=`
         <div class="viewer-bottom"><span>${icon('mouse')}<span id="mouse-hint">Drag to orbit · scroll to zoom · right-drag to pan</span></span><span id="viewer-size">STL → a little insight</span></div>
         <div class="result-panel" id="result-panel" hidden>
           <div class="result-heading"><span class="result-icon">${icon('spark')}</span><div><h3>The force has a story.</h3><p>Warm areas carry more concentrated stress in this run.</p></div><span class="result-complete">${icon('check')} Solved</span></div>
+          <dl class="result-metrics"><div><dt>Applied force</dt><dd id="result-force"></dd></div><div><dt>Calculated max movement</dt><dd id="result-movement"></dd></div><div><dt>Peak surface stress</dt><dd id="result-stress"></dd></div></dl>
           <div class="result-controls"><div class="result-tabs" role="group" aria-label="Model display"><button id="show-heatmap" class="selected">Stress heatmap</button><button id="show-original">Original part</button></div><label class="switch-label"><input id="deformation" type="checkbox"/><span class="switch"></span>Show movement</label></div>
+          <div class="movement-controls"><label for="movement-scale">Movement scale</label><select id="movement-scale"><option value="0.001">0.001× · reduced</option><option value="0.01">0.01× · reduced</option><option value="0.1">0.1× · reduced</option><option value="1" selected>1× · actual scale</option><option value="10">10× · exaggerated</option><option value="100">100× · exaggerated</option><option value="1000">1,000× · exaggerated</option><option value="10000">10,000× · exaggerated</option></select><span>Kept between runs so you can compare loads.</span></div>
           <div class="result-note">${icon('info')}<p>Look for concentrated colour around necks, holes and inside corners. This coarse mesh can understate bending movement; colours and movement are approximate design cues.</p></div>
           <details class="result-details"><summary>About this preview</summary><p id="result-mesh"></p><ul id="result-notes"></ul><p>Colours rescale for each run. A stronger colour means higher relative stress, not a failure prediction.</p></details>
         </div>
@@ -107,7 +110,7 @@ function setBusy(busy,label='Following the force…') {
   state.busy=busy;viewer?.setBusy(busy);$('busy-overlay').hidden=!busy;$('busy-label').textContent=label;
   $('busy-detail').textContent=label.startsWith('Bringing')?'Reading and centering the STL.':'Meshing your part and solving the load.';
   document.querySelectorAll('.setup input,.setup select,.setup button').forEach(el=>el.disabled=busy);
-  document.querySelectorAll('.canvas-tools button,#fit-view,#viewer-upload,#load-example,#stl-file,.result-controls button,.result-controls input').forEach(el=>el.disabled=busy);
+  document.querySelectorAll('.canvas-tools button,#fit-view,#viewer-upload,#load-example,#stl-file,.result-controls button,.result-controls input,#movement-scale').forEach(el=>el.disabled=busy);
   if(!busy){$('material').disabled=!state.materials.length;updateSelections();}
 }
 
@@ -165,7 +168,7 @@ async function loadFile(file,example=false) {
     $('contact-size').min=String(Math.max(1,Math.round(Math.max(...metadata.dimensions_mm)/100)));
     $('contact-size').value=String(Math.max(2,Math.round(Math.max(...metadata.dimensions_mm)*.15)));
     updateRadius();$('result-panel').hidden=true;$('heatmap-legend').hidden=true;$('deformation-label').hidden=true;
-    $('deformation').checked=false;$('viewer-badge').textContent='READY TO EXPLORE';setMode('orbit');
+    $('deformation').checked=false;$('movement-scale').value='1';$('viewer-badge').textContent='READY TO EXPLORE';setMode('orbit');
     if(example){viewer.setExampleSelections();$('force').value='25';$('force-unit').value='lbf';updateForce();updateDirection('down');}
     if(metadata.notes.length)showNotice(metadata.notes.join(' '));
   } catch(error){showNotice(error.message||'The STL could not be loaded.');}
@@ -228,6 +231,9 @@ $('simulate').onclick=async()=>{
     viewer.setResult(result);state.result=result;
     $('result-panel').hidden=false;$('heatmap-legend').hidden=false;$('viewer-badge').textContent='LOAD PATH PREVIEW';
     $('show-heatmap').classList.add('selected');$('show-original').classList.remove('selected');
+    $('result-force').textContent=`${formatQuantity(result.force_newtons)} N`;
+    $('result-movement').textContent=`${formatQuantity(result.max_displacement_mm)} mm`;
+    $('result-stress').textContent=`${formatQuantity(result.stress.reduce((peak,value)=>Math.max(peak,value),0))} MPa`;
     $('result-mesh').textContent=`${result.mesh.elements.toLocaleString()} linear tetrahedra · about ${result.mesh.cell_mm.toFixed(2)} mm per mesh cell. All loads are distributed across a contact patch.`;
     $('result-notes').innerHTML=result.notes.map(note=>`<li>${escape(note)}</li>`).join('');
     setBusy(false);setMode('orbit');
@@ -236,7 +242,9 @@ $('simulate').onclick=async()=>{
 
 function setHeatmap(heatmap){if(!state.result)return;viewer.heatmap=heatmap;viewer.recolor();$('show-heatmap').classList.toggle('selected',heatmap);$('show-original').classList.toggle('selected',!heatmap);$('heatmap-legend').hidden=!heatmap;}
 $('show-heatmap').onclick=()=>setHeatmap(true);$('show-original').onclick=()=>setHeatmap(false);
-$('deformation').onchange=()=>{viewer.setDeformation($('deformation').checked);$('deformation-label').hidden=!$('deformation').checked;$('deformation-label').textContent=`Movement exaggerated ${viewer.deformationFactor().toFixed(0)}× · visual only`;};
+function updateMovement(){viewer.setDeformation($('deformation').checked);$('deformation-label').hidden=!viewer.deform;$('deformation-label').textContent=movementLabel(viewer.deformationFactor());}
+$('deformation').onchange=updateMovement;
+$('movement-scale').onchange=()=>{viewer.setDeformationScale(Number($('movement-scale').value));updateMovement();};
 $('help').onclick=()=>$('help-dialog').showModal();['close-help','help-done'].forEach(id=>$(id).onclick=()=>$('help-dialog').close());
 $('help-dialog').addEventListener('click',e=>{if(e.target===$('help-dialog'))$('help-dialog').close();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&viewer)setMode('orbit');});

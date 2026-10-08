@@ -40,7 +40,7 @@ export class PartViewer {
   constructor(container, callbacks) {
     this.container=container; this.callbacks=callbacks;
     this.mode='orbit';this.radius=6;this.fixtures=[];this.load=null;
-    this.direction=[0,0,-1];this.result=null;this.heatmap=true;this.deform=false;
+    this.direction=[0,0,-1];this.result=null;this.heatmap=true;this.deform=false;this.deformationScale=1;
     this.busy=false;this.span=100;this.pointerDown=false;this.dragStart=null;
     this.scene=new THREE.Scene();
     this.scene.background=new THREE.Color('#0F172A');
@@ -107,7 +107,7 @@ export class PartViewer {
     this.original=new Float32Array(geometry.attributes.position.array);
     this.colors=new Float32Array(this.original.length);
     geometry.setAttribute('color',new THREE.BufferAttribute(this.colors,3));
-    this.fixtures=[];this.load=null;this.result=null;this.displacements=null;this.stress=null;
+    this.fixtures=[];this.load=null;this.result=null;this.displacements=null;this.stress=null;this.deform=false;this.deformationScale=1;
     this.makeGrid(span,geometry.boundingBox.min.z-span*.045);this.fit();this.redrawMarkers();this.recolor();
     return dimensions.toArray();
   }
@@ -116,8 +116,9 @@ export class PartViewer {
     const horizontal=2*Math.atan(Math.tan(THREE.MathUtils.degToRad(this.camera.fov/2))*this.camera.aspect);
     const angle=Math.min(horizontal,THREE.MathUtils.degToRad(this.camera.fov));
     const distance=radius/Math.sin(angle/2)*1.22;
-    this.camera.position.copy(new THREE.Vector3(.8,-1.65,1.05).normalize().multiplyScalar(distance));
-    this.controls.target.set(0,0,0);this.camera.near=Math.max(.001,radius/500);this.camera.far=radius*100;
+    const center=this.part?.geometry.boundingSphere?.center || new THREE.Vector3();
+    this.camera.position.copy(new THREE.Vector3(.8,-1.65,1.05).normalize().multiplyScalar(distance).add(center));
+    this.controls.target.copy(center);this.camera.near=Math.max(.001,radius/500);this.camera.far=radius*100;
     this.camera.updateProjectionMatrix();this.controls.update();
   }
   setMode(mode) {
@@ -225,6 +226,7 @@ export class PartViewer {
     this.part.geometry.attributes.color.needsUpdate=true;
   }
   setResult(result) {
+    this.setDeformation(false);
     this.result=result;
     const pitch=result.mesh.cell_mm;
     const buckets=new Map();
@@ -261,7 +263,11 @@ export class PartViewer {
     this.part.geometry.computeBoundingSphere();
     this.markers.visible=!this.deform;
   }
-  deformationFactor() {return Math.min(10000,this.span*.065/Math.max(this.result?.max_displacement_mm||0,1e-9));}
+  setDeformationScale(scale) {
+    if(!Number.isFinite(scale)||scale<.001||scale>10000)throw new RangeError('Movement scale must be between 0.001 and 10000.');
+    this.deformationScale=scale;this.setDeformation(this.deform);
+  }
+  deformationFactor() {return this.deformationScale;}
   clearResult() {this.setDeformation(false);this.result=null;this.stress=null;this.displacements=null;this.recolor();}
   setExampleSelections() {
     // The bundled profile is centred at [25.5,0,25] mm.

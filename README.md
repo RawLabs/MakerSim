@@ -23,7 +23,7 @@
 MakerSim helps makers explore how a force travels through a 3D-printed part.
 Upload an STL, choose your filament and print settings, paint the surfaces held
 still, and place a pull. An elasticity solver returns a relative stress
-heatmap and an optional exaggerated movement preview.
+heatmap and an optional movement preview with an adjustable display scale.
 
 The landing page stays available when the testing server is offline. Its 3D hero
 uses a precomputed result from the included bracket; the playground runs your
@@ -54,7 +54,9 @@ working; press `Ctrl+C` to stop the app.
 3. Choose **Hold here** and click or paint mounted surfaces. Choose **Pull here**
    and click a load surface, then drag the arrow or select a direction preset.
 4. Set the weight or force and choose **Simulate**. Explore the heatmap, switch
-   back to the original part, or enable **Show movement**.
+   back to the original part, or enable **Show movement**. Movement starts at
+   **1× actual scale**; select a larger or smaller display scale when needed.
+   The chosen scale stays fixed between runs so different loads can be compared.
 
 The included bracket starts with two mounting-hole patches held still and a
 25 lb downward pull. Clear its selections to try your own setup. Use **Orbit**
@@ -151,7 +153,7 @@ or permanent deformation over time.
 | **Your print** | Choose filament, walls, solid layers, infill, and the build axis. |
 | **Hold & pull** | Paint several held areas and place a distributed load patch with a draggable arrow. |
 | **Add a little weight** | Use newtons, pounds-force, kilograms of hanging mass, or stone of hanging mass. |
-| **Simulate** | Explore relative stress on the original STL and optionally display exaggerated movement. |
+| **Simulate** | Read applied force, calculated maximum movement and peak surface stress; explore relative stress and movement at a fixed, adjustable display scale. |
 
 The viewer supports orbit, zoom, pan, camera fit, grid visibility, and optional
 slow rotation. Changing material, print settings, holds, direction, or load clears
@@ -186,7 +188,13 @@ Surface stress is a volume-weighted nodal von Mises scalar used to visualize
 concentration, not an anisotropic failure criterion. The frontend interpolates
 the field onto a subdivided version of the original STL. Each run rescales
 colors using its 98th percentile, so colors alone cannot compare load magnitudes
-across runs. Movement has an explicit exaggeration factor.
+across runs. Applied force (N), calculated maximum movement (mm), and peak surface
+stress (MPa) are displayed separately. Movement defaults to actual scale (1×),
+with explicit reduction or exaggeration options from 0.001× to 10,000×. The
+chosen display scale stays fixed across reruns, so increasing a load tenfold
+produces tenfold displayed movement under the same material and constraints.
+Replacing the part resets the display scale to 1×. These are linear-elastic
+calculations; large movements do not predict the real deformed shape.
 
 ### Mesh approximation
 
@@ -289,7 +297,7 @@ From the repository root:
 This runs the Python suite, real Three.js interaction checks integrated with
 solver output, and the production build. The current checkpoint passes 54 Python
 tests, including affine tetrahedral strain, an analytical axial bar, equilibrium,
-doubled-load scaling, orientation, print settings, retained holes, patch spreading,
+tenfold-load scaling, orientation, print settings, retained holes, patch spreading,
 thin-feature refinement, enclosed cavities, shell containment and intersection,
 mesh-budget limits, mixed winding, extreme direction
 vectors, nonfinite JSON validation, atomic model storage, browser workspace
