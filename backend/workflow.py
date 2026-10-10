@@ -38,12 +38,54 @@ Surface von Mises images show stress concentration, not
 directional stress-flow lines. Linear elasticity, coarse voxel meshing and heuristic print properties limit accuracy.
 If a requested CAD connection is unavailable, report the blocker. A permitted fallback must be clearly labeled;
 do not describe locally generated CAD as created or saved in Onshape. No browser or web service is needed to solve.
+When a persistent design session is attached (session_id supplied by the human or agent window):
+1. Read get_design_session and recall_design_context before working. Keep all dimensions, corrections and
+   lessons scoped to this project's part and branch. Do not retrieve another project's experience as a requirement.
+   Connect using connect_design_agent with the actual agent app's name; this connection does not start work.
+   Declare supports_controls only if your integration honors every MakerSim design-step gate. Default connections
+   provide viewing and feedback. Saving/reopening a workspace never starts or resumes an agent.
+   After the human explicitly asks to start, relay their actual instruction using authorize_design_run(start).
+   A new run carries forward saved context, not old execution authority. Keep its run_id and pass it to
+   publish_design_event, report_design_activity, begin_design_step, run_session_test and complete_design_session.
+   Refresh update_design_connection every 30 seconds even while paused; disconnect when the agent stops.
+   MakerSim/browser connectivity alone is not proof that an agent is connected. A service restart requires fresh
+   agent evidence. Stale/replaced run IDs cannot claim activity or start design operations.
+   Report thinking/explaining with report_design_activity before text work, with a brief plain-language purpose,
+   not private chain of thought. Refresh long activities every 30 seconds. Report waiting when text work ends;
+   publish_design_event(explanation) also clears explaining activity. Silence is never evidence of thinking.
+2. Publish plan and prediction events, then begin_design_step BEFORE EACH connected CAD operation.
+   Stop on session_paused, operation_active or budget_reached. A live interruption requires an explicit human resume,
+   either through optional window controls or authorize_design_run(resume) relaying the human's agent-app instruction.
+   Never invent authorization. Answering a question, changing mode or receiving new directions does not resume work.
+   Feedback-only questions are stored without claiming to pause an external agent; read feedback events between steps.
+   Human directions and Continue events can arrive in the MakerSim window without a new agent-app chat message.
+   While waiting interactively, poll the session events and refresh the connection; check for pending human directions
+   again before disconnecting or ending the turn. Acknowledge and handle those directions before reporting completion.
+   Do not disconnect merely because the agent-app chat is quiet while the human is interacting in MakerSim.
+   Disconnect using update_design_connection with seen_sequence set to the last event cursor actually read and handled.
+   If new human input blocks disconnection, read and handle it before retrying; never advance the cursor blindly.
+3. Finish each operation using finish_design_step with an explanation, immutable exported STL and saved editable
+   CAD revision reference. Short operations and frequent exports allow live viewport updates and responsive pauses.
+   Existing CAD tools perform edits; MakerSim does not supply a CAD engine or an AI model runner.
+   During long CAD operations, report working progress with the active operation_id every 30 seconds.
+   Simulation activity is announced automatically by run_session_test. Never claim percentage progress or an ETA
+   unless the connected tool provides it. Missing updates are uncertainty, not proof of a failed operation.
+4. Use run_session_test for session simulations so checkpoints, immutable artifacts and budgets apply.
+   Publish Check findings and Act decisions/lessons, including failed hypotheses and evidence_type/conditions.
+   Agent-reported tokens are accounting, not a hard provider spending cap; already-running work reaches a safe boundary.
+5. Explanations may be published while paused to answer human questions. Never acquire new CAD work until explicit resume.
+   Use branch_design_session from the exact selected timeline event. A branch inherits only the frozen parent prefix.
+6. Use complete_design_session to announce Candidate ready for review, describing numerical criteria, confidence,
+   fit, clearance and print concerns. Human acceptance and physical validation remain separate.
 """
 
 
 def get_workflow():
-    return {"workflow_version": 2, "instructions": WORKFLOW_INSTRUCTIONS,
+    return {"workflow_version": 6, "instructions": WORKFLOW_INSTRUCTIONS,
             "review_checkpoint": "user_selects_revision_or_accepts",
             "default_first_review": {"baseline_revisions": 1, "maximum_candidate_revisions": 3},
             "run_artifacts": ["editable_cad", "stl", "test_spec", "report", "captures", "revision_notes"],
-            "branch_metadata": ["parent_report", "branch", "goal"]}
+            "branch_metadata": ["parent_report", "branch", "goal"],
+            "sessions": {"interrupt_requires": "explicit_human_resume", "memory_scope": "project_part_branch",
+                         "default_role": "viewing_and_feedback", "controls": "connected_agent_opt_in",
+                         "cad_execution": "connected_client", "completion": "candidate_ready_for_review"}}

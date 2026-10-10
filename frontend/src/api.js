@@ -10,10 +10,10 @@ async function responseJson(response) {
   return response.json();
 }
 export const getMaterials = () => fetch('/api/materials').then(responseJson);
-export async function uploadModel(file, unit) {
+export async function uploadModel(file, unit, signal) {
   const body = new FormData();
   body.append('file',file); body.append('unit',unit);
-  return responseJson(await fetch('/api/models',{method:'POST',body}));
+  return responseJson(await fetch('/api/models',{method:'POST',body,signal}));
 }
 export async function simulate(payload) {
   return responseJson(await fetch('/api/simulate',{

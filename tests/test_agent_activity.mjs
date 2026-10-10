@@ -1,0 +1,40 @@
+import assert from 'node:assert/strict';
+import { describeActivity, agentPresence } from '../frontend/src/agent-activity.js';
+
+const now = 1000;
+const describe = (session, connection = 'live') => describeActivity(session, {now, connection});
+const running = {status: 'running', active_operation: null, activity: null, viewer_epoch: 'server-1',
+  agent_run: {id: 'run-1', name: 'Workshop assistant', state: 'working', supports_controls: true, last_seen_at: 990, viewer_epoch: 'server-1'}};
+assert.equal(describe(running).label, 'Waiting for the agent', 'Silence must not be presented as thinking.');
+const thinking = {...running, activity: {kind: 'thinking', message: 'Considering rib placement and bolt access.', updated_at: 980}};
+assert.equal(describe(thinking).label, 'Thinking through the design');
+assert.equal(describe({...thinking, activity: {...thinking.activity, updated_at: 940}}).label, 'Waiting for an update');
+const explaining = {...running, activity: {kind: 'explaining', message: 'Why a rib follows the bending load.', updated_at: now}};
+assert.equal(describe(explaining).label, 'Explaining the design');
+const sketch = {...running, active_operation: {kind: 'cad', description: 'Draw a rib.', started_at: 970, updated_at: 995}};
+assert.equal(describe(sketch).label, 'Sketching your part');
+assert.match(describe(sketch).freshness, /30 seconds/);
+assert.equal(describe({...sketch, active_operation: {...sketch.active_operation, kind: 'simulation'}}).label, 'Simulating a load');
+const oldSketch = {...sketch, active_operation: {...sketch.active_operation, started_at: 800, updated_at: 900}};
+assert.equal(describe(oldSketch).tone, 'waiting');
+assert.match(describe(oldSketch).freshness, /progress is unconfirmed/);
+assert.match(describe(sketch, 'disconnected').connection, /disconnected.*unconfirmed/);
+assert.equal(describe(sketch, 'disconnected').tone, 'waiting');
+const paused = {...explaining, status: 'paused', pause_reason: 'Why this thickness?'};
+assert.match(describe(paused).label, /Paused/);
+assert.match(describe(paused).detail, /Design work remains paused/);
+assert.match(describe({...sketch, status: 'paused'}).label, /Pausing.*sketch finishing/);
+assert.equal(describe({...running, status: 'review'}).label, 'Ready for your review');
+assert.match(describe({...running, status: 'review'}).detail, /physical checks/);
+// Existing saved sessions have no activity field or operation heartbeat.
+assert.equal(describe({status: 'running', active_operation: {kind: 'cad', description: 'Older edit.', started_at: 999}}).label, 'Saved work');
+assert.equal(describe({status: 'paused', pause_reason: 'Old Continue gate.'}).label, 'Saved work');
+const observer = {...running, agent_run: {...running.agent_run, supports_controls: false}};
+assert.equal(agentPresence(observer, {now}).controls, false);
+assert.match(describe({...observer, status: 'paused'}).detail, /Resume in Workshop assistant/);
+assert.equal(agentPresence(running, {now}).controls, true);
+assert.equal(agentPresence(running, {now: 1060}).controls, false);
+assert.equal(describe({...running, viewer_epoch: 'restarted-server'}).label, 'Saved work');
+assert.equal(describe({...running, agent_run: {...running.agent_run, state: 'ended'}}).label, 'Saved work');
+assert.equal(describe({...running, agent_run: {...running.agent_run, state: 'connected'}}).label, 'Workshop assistant connected');
+console.log('Agent activity checks passed: saved work, separate agent presence, optional controls, restart, stale progress and live pause priority.');

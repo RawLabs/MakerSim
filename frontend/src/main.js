@@ -2,12 +2,17 @@ import './style.css';
 import { icon } from './icons.js';
 import { PartViewer } from './viewer.js';
 import { getMaterials, uploadModel, simulate } from './api.js';
-import { formatQuantity, movementLabel } from './result-display.js';
+import { formatQuantity, movementLabel, loadUnitFactors, loadDisplay, weightExplanation } from './result-display.js';
+import { AgentWindow } from './agent-window.js';
 import brandArtwork from '../../artifacts/MakerSimLogos.png';
 
 const $=(id)=>document.getElementById(id);
-const state={model:null,file:null,materials:[],busy:false,result:null};
-const unitFactors={N:1,lbf:4.4482216152605,kg:9.80665,stone:14*4.4482216152605};
+const state={model:null,file:null,materials:[],busy:false,result:null,viewportGeneration:0};
+const loadUnitPreferenceKey='makersim.loadUnit';
+function savedLoadUnit(){
+  try {const unit=localStorage.getItem(loadUnitPreferenceKey);return Object.hasOwn(loadUnitFactors,unit)?unit:null;}
+  catch {return null;}
+}
 const escape=(text)=>String(text).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 $('app').innerHTML=`
@@ -53,8 +58,8 @@ $('app').innerHTML=`
         </section>
         <section class="card force-card">
           <div class="card-heading"><span class="step-number">04</span><h2>Add a little weight</h2></div>
-          <div class="force-input"><input id="force" type="number" min="0.01" max="100000" step="any" value="25" aria-label="Force amount"/><select id="force-unit" aria-label="Force unit"><option value="lbf">lb / hanging pounds</option><option value="kg">kg / hanging mass</option><option value="N">Newtons</option><option value="stone">stone / hanging mass</option></select></div>
-          <p class="force-equivalent" id="force-equivalent">About 111 N of pulling force</p>
+          <div class="force-input"><input id="force" type="number" min="0.01" max="100000" step="any" value="25" aria-label="Load amount"/><select id="force-unit" aria-label="Load unit"><option value="lbf">Pounds (lb)</option><option value="kg">Kilograms (kg)</option><option value="stone">Stone</option><option value="N">Newtons (N)</option></select></div>
+          <p class="force-equivalent" id="force-equivalent"></p>
           <div class="direction-label">Force direction <span id="direction-status">Down · −Z</span></div>
           <div class="direction-buttons" role="group" aria-label="Force direction">${[['down','Down'],['up','Up'],['left','−X'],['right','+X'],['forward','−Y'],['back','+Y']].map(([name,label])=>`<button data-direction="${name}" class="${name==='down'?'selected':''}">${label}</button>`).join('')}</div>
           <small class="force-hint">Or click the part and drag the arrow in any direction.</small>
@@ -77,7 +82,7 @@ $('app').innerHTML=`
         <div class="viewer-bottom"><span>${icon('mouse')}<span id="mouse-hint">Drag to orbit · scroll to zoom · right-drag to pan</span></span><span id="viewer-size">STL → a little insight</span></div>
         <div class="result-panel" id="result-panel" hidden>
           <div class="result-heading"><span class="result-icon">${icon('spark')}</span><div><h3>The force has a story.</h3><p>Warm areas carry more concentrated stress in this run.</p></div><span class="result-complete">${icon('check')} Solved</span></div>
-          <dl class="result-metrics"><div><dt>Applied force</dt><dd id="result-force"></dd></div><div><dt>Calculated max movement</dt><dd id="result-movement"></dd></div><div><dt>Peak surface stress</dt><dd id="result-stress"></dd></div></dl>
+          <dl class="result-metrics"><div><dt>Test load</dt><dd id="result-force"></dd></div><div><dt>Calculated max movement</dt><dd id="result-movement"></dd></div><div><dt>Peak surface stress</dt><dd id="result-stress"></dd></div></dl>
           <div class="result-controls"><div class="result-tabs" role="group" aria-label="Model display"><button id="show-heatmap" class="selected">Stress heatmap</button><button id="show-original">Original part</button></div><label class="switch-label"><input id="deformation" type="checkbox"/><span class="switch"></span>Show movement</label></div>
           <div class="movement-controls"><label for="movement-scale">Movement scale</label><select id="movement-scale"><option value="0.001">0.001× · reduced</option><option value="0.01">0.01× · reduced</option><option value="0.1">0.1× · reduced</option><option value="1" selected>1× · actual scale</option><option value="10">10× · exaggerated</option><option value="100">100× · exaggerated</option><option value="1000">1,000× · exaggerated</option><option value="10000">10,000× · exaggerated</option></select><span>Kept between runs so you can compare loads.</span></div>
           <div class="result-note">${icon('info')}<p>Look for concentrated colour around necks, holes and inside corners. This coarse mesh can understate bending movement; colours and movement are approximate design cues.</p></div>
@@ -91,7 +96,7 @@ $('app').innerHTML=`
   <dialog id="help-dialog"><button id="close-help" class="dialog-close icon-button" aria-label="Close help">${icon('close')}</button><span class="eyebrow">WELCOME TO MAKERSIM</span><h2>A quick question for your part.</h2><p>See approximately where a force travels, then use that insight to improve your next print.</p><ol><li><strong>Upload</strong> a closed STL. Check its millimetre or inch units.</li><li><strong>Set print</strong> with your filament, walls, layers and infill.</li><li><strong>Hold here</strong> by clicking or painting mounted surfaces. Use Orbit to reach the other side.</li><li><strong>Pull here</strong> by clicking a surface and dragging an arrow. The pull spreads over a small contact patch.</li><li><strong>Add weight & simulate.</strong> Warm colours show more concentrated stress in this run.</li></ol><p class="help-note">This is a coarse linear-elastic preview with approximate printed properties. It helps with design guesses; it does not predict failure, layer separation or safe working loads.</p><button id="help-done" class="primary-light">Let's explore ${icon('arrow')}</button></dialog>
 `;
 
-let viewer;
+let viewer, agentWindow;
 try {
   viewer=new PartViewer($('viewport'),{
     edit:()=>invalidate(),
@@ -112,6 +117,7 @@ function setBusy(busy,label='Following the force…') {
   document.querySelectorAll('.setup input,.setup select,.setup button').forEach(el=>el.disabled=busy);
   document.querySelectorAll('.canvas-tools button,#fit-view,#viewer-upload,#load-example,#stl-file,.result-controls button,.result-controls input,#movement-scale').forEach(el=>el.disabled=busy);
   if(!busy){$('material').disabled=!state.materials.length;updateSelections();}
+  if(!busy)window.dispatchEvent(new Event('makersim-idle'));
 }
 
 function invalidate() {
@@ -119,6 +125,17 @@ function invalidate() {
   state.result=null;viewer.clearResult();$('result-panel').hidden=true;$('heatmap-legend').hidden=true;
   $('deformation-label').hidden=true;$('deformation').checked=false;$('viewer-badge').textContent='READY TO EXPLORE';
   $('step-run').classList.remove('done');$('step-run').classList.add('active');
+}
+
+function clearViewport() {
+  state.viewportGeneration++;state.model=null;state.file=null;state.result=null;
+  viewer?.clearFile();
+  $('empty-view').hidden=false;$('file-summary').hidden=true;$('part-card').hidden=true;
+  $('file-name').textContent='';$('file-dimensions').textContent='';$('viewer-name').textContent='Your part';$('viewer-size').textContent='';
+  $('result-panel').hidden=true;$('heatmap-legend').hidden=true;$('deformation-label').hidden=true;
+  $('deformation').checked=false;$('movement-scale').value='1';$('viewer-badge').textContent='WAITING FOR A PART';$('stl-file').value='';
+  $('notice').hidden=true;updateDirection('down');setMode('orbit');updateSelections();
+  if(state.busy){$('busy-label').textContent='Opening this design session…';$('busy-detail').textContent='Waiting for the previous preview to finish.';}
 }
 
 function settingsValid() {return ['walls','top-layers','bottom-layers','force'].every(id=>$(id).checkValidity()&&$(id).value.trim()!=='') && !!state.materials.find(m=>m.id===$('material').value)?.supported;}
@@ -151,14 +168,24 @@ function setMode(mode) {
   $('rotate-toggle').classList.remove('selected');
 }
 
-async function loadFile(file,example=false) {
-  if(!viewer||state.busy)return;
+async function loadFile(file,example=false,sessionPreview=false,{obsolete=()=>false,signal}={}) {
+  if(!viewer||state.busy)return false;
   if(!file||!file.name.toLowerCase().endsWith('.stl')){showNotice('Choose an STL file to bring your part in.');return;}
   if(file.size>20*1024*1024){showNotice('This STL is over 20 MB. Export a lower-detail version.');return;}
+  if(!sessionPreview){
+    try {await agentWindow?.beforePartChange();} catch(error){showNotice(error.message);return false;}
+  }
+  if(state.busy||obsolete())return false;
+  const generation=++state.viewportGeneration,unit=$('stl-unit').value;
+  const outdated=()=>obsolete()||generation!==state.viewportGeneration;
   setBusy(true,'Bringing your part in…');$('notice').hidden=true;
   try {
-    const metadata=await uploadModel(file,$('stl-unit').value);
-    await viewer.setFile(await file.arrayBuffer(),$('stl-unit').value);
+    const metadata=await uploadModel(file,unit,signal);
+    if(outdated())return false;
+    const buffer=await file.arrayBuffer();
+    if(outdated())return false;
+    await viewer.setFile(buffer,unit);
+    if(outdated())return false;
     state.model=metadata;state.file=file;state.result=null;
     $('empty-view').hidden=true;$('file-summary').hidden=false;$('part-card').hidden=false;
     $('file-name').textContent=file.name;$('viewer-name').textContent=file.name;
@@ -169,9 +196,10 @@ async function loadFile(file,example=false) {
     $('contact-size').value=String(Math.max(2,Math.round(Math.max(...metadata.dimensions_mm)*.15)));
     updateRadius();$('result-panel').hidden=true;$('heatmap-legend').hidden=true;$('deformation-label').hidden=true;
     $('deformation').checked=false;$('movement-scale').value='1';$('viewer-badge').textContent='READY TO EXPLORE';setMode('orbit');
-    if(example){viewer.setExampleSelections();$('force').value='25';$('force-unit').value='lbf';updateForce();updateDirection('down');}
+    if(example){viewer.setExampleSelections();setDisplayedLoad(25*loadUnitFactors.lbf,savedLoadUnit()||'lbf');updateForce();updateDirection('down');}
     if(metadata.notes.length)showNotice(metadata.notes.join(' '));
-  } catch(error){showNotice(error.message||'The STL could not be loaded.');}
+    return true;
+  } catch(error){if(!outdated())showNotice(error.message||'The STL could not be loaded.');return false;}
   finally {setBusy(false);setMode('orbit');$('stl-file').value='';}
 }
 
@@ -202,8 +230,26 @@ $('undo-hold').onclick=()=>{invalidate();viewer.undoHold();};
 $('clear-selection').onclick=()=>{invalidate();viewer.clearSelections();};
 function updateRadius(){const diameter=Number($('contact-size').value);$('contact-value').innerHTML=`${diameter}<span> mm</span>`;viewer?.setRadius(diameter/2);}
 $('contact-size').oninput=updateRadius;
-function updateForce(){const force=Number($('force').value)*unitFactors[$('force-unit').value];$('force-equivalent').textContent=force>0&&Number.isFinite(force)?`About ${force<10?force.toFixed(1):Math.round(force).toLocaleString()} N of pulling force`:'Enter a positive amount of force';}
-['force','force-unit'].forEach(id=>$(id).addEventListener('input',()=>{invalidate();updateForce();updateSelections();}));
+function setDisplayedLoad(forceNewtons,unit){
+  const display=loadDisplay(forceNewtons,unit);
+  $('force-unit').value=display.unit;$('force').value=Number(display.magnitude.toPrecision(12));displayedLoadUnit=display.unit;
+}
+function updateForce(){
+  const unit=$('force-unit').value;
+  $('force-equivalent').textContent=weightExplanation(Number($('force').value)*loadUnitFactors[unit],unit);
+}
+$('force').addEventListener('input',()=>{invalidate();updateForce();updateSelections();});
+let displayedLoadUnit=savedLoadUnit()||'lbf';
+setDisplayedLoad(25*loadUnitFactors.lbf,displayedLoadUnit);
+$('force-unit').addEventListener('change',()=>{
+  // Changing display units preserves the physical load and the solved result.
+  const unit=$('force-unit').value;
+  const forceNewtons=state.result?.force_newtons??Number($('force').value)*loadUnitFactors[displayedLoadUnit];
+  setDisplayedLoad(forceNewtons,unit);displayedLoadUnit=unit;
+  try {localStorage.setItem(loadUnitPreferenceKey,unit);} catch { /* Unit choice still works. */ }
+  updateForce();updateSelections();
+  if(state.result)$('result-force').textContent=loadDisplay(state.result.force_newtons,unit).label;
+});
 ['walls','top-layers','bottom-layers','infill','orientation','material'].forEach(id=>$(id).addEventListener('input',()=>{invalidate();$('infill-value').innerHTML=`${$('infill').value}<span>%</span>`;updateMaterial();updateSelections();}));
 
 function updateMaterial() {
@@ -220,6 +266,7 @@ document.querySelectorAll('[data-direction]').forEach(button=>button.onclick=()=
 
 $('simulate').onclick=async()=>{
   if($('simulate').disabled)return;
+  const generation=state.viewportGeneration;
   setBusy(true);$('notice').hidden=true;
   try {
     const result=await simulate({
@@ -228,17 +275,31 @@ $('simulate').onclick=async()=>{
       fixtures:viewer.fixtures,load:viewer.load,direction:viewer.direction,
       magnitude:Number($('force').value),unit:$('force-unit').value,
     });
+    if(generation===state.viewportGeneration)showSimulationResult(result);
+    setBusy(false);setMode('orbit');
+  } catch(error){if(generation===state.viewportGeneration)showNotice(error.message||'The simulation could not finish.');setBusy(false);}
+};
+
+function showSimulationResult(result) {
+    if(result.session_test){
+      const {spec,fixtures,load,direction}=result.session_test;
+      viewer.fixtures=fixtures;viewer.load=load;viewer.direction=direction;viewer.redrawMarkers();
+      $('material').value=spec.material_id;
+      for(const [key,id] of [['walls','walls'],['top_layers','top-layers'],['bottom_layers','bottom-layers'],['infill','infill'],['orientation','orientation']])$(id).value=spec.print_settings[key];
+      const unit=savedLoadUnit()||(result.session_test.unit!=='N'&&Object.hasOwn(loadUnitFactors,result.session_test.unit)?result.session_test.unit:$('force-unit').value);
+      setDisplayedLoad(result.force_newtons,unit);displayedLoadUnit=unit;updateForce();updateDirection(null);updateMaterial();
+      $('infill-value').innerHTML=`${$('infill').value}<span>%</span>`;
+    }
     viewer.setResult(result);state.result=result;
     $('result-panel').hidden=false;$('heatmap-legend').hidden=false;$('viewer-badge').textContent='LOAD PATH PREVIEW';
     $('show-heatmap').classList.add('selected');$('show-original').classList.remove('selected');
-    $('result-force').textContent=`${formatQuantity(result.force_newtons)} N`;
+    $('result-force').textContent=loadDisplay(result.force_newtons,$('force-unit').value).label;
     $('result-movement').textContent=`${formatQuantity(result.max_displacement_mm)} mm`;
     $('result-stress').textContent=`${formatQuantity(result.stress.reduce((peak,value)=>Math.max(peak,value),0))} MPa`;
     $('result-mesh').textContent=`${result.mesh.elements.toLocaleString()} linear tetrahedra · about ${result.mesh.cell_mm.toFixed(2)} mm per mesh cell. All loads are distributed across a contact patch.`;
     $('result-notes').innerHTML=result.notes.map(note=>`<li>${escape(note)}</li>`).join('');
-    setBusy(false);setMode('orbit');
-  } catch(error){showNotice(error.message||'The simulation could not finish.');setBusy(false);}
-};
+    updateSelections();
+}
 
 function setHeatmap(heatmap){if(!state.result)return;viewer.heatmap=heatmap;viewer.recolor();$('show-heatmap').classList.toggle('selected',heatmap);$('show-original').classList.toggle('selected',!heatmap);$('heatmap-legend').hidden=!heatmap;}
 $('show-heatmap').onclick=()=>setHeatmap(true);$('show-original').onclick=()=>setHeatmap(false);
@@ -262,4 +323,20 @@ getMaterials().then(({materials,workspace})=>{
   $('material').value='generic-pla';updateMaterial();updateSelections();
 }).catch(()=>{showNotice('The solver service is unavailable. Please reload shortly.');$('material').innerHTML='<option>Solver service unavailable</option>';$('material').disabled=true;});
 updateForce();updateRadius();
+agentWindow=new AgentWindow({
+  part:()=>({file:state.file,unit:$('stl-unit').value}),
+  clearViewport,
+  showGeometry:async(file,unit,{obsolete,signal})=>{
+    while(state.busy)await new Promise(resolve=>window.addEventListener('makersim-idle',resolve,{once:true}));
+    if(obsolete())return false;
+    $('stl-unit').value=unit;
+    if(!await loadFile(file,false,true,{obsolete,signal})){
+      if(obsolete())return false;
+      throw new Error('The session geometry could not be displayed.');
+    }
+    return true;
+  },
+  showResult:result=>result?showSimulationResult(result):invalidate(),
+  notice:showNotice,
+});
 window.addEventListener('pagehide',()=>viewer?.dispose());

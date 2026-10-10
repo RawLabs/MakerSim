@@ -55,7 +55,7 @@ class WorkspaceMiddleware:
                     extra.extend([(b'access-control-allow-origin', b'https://makersim.rawcastdigital.com'), (b'vary', b'Origin')])
                 if api and new_workspace:
                     response = Response()
-                    response.set_cookie(self.cookie_name, token, max_age=7200, httponly=True, secure=self.hosted, samesite='lax', path='/')
+                    response.set_cookie(self.cookie_name, token, max_age=7200 if self.hosted else 365*86400, httponly=True, secure=self.hosted, samesite='lax', path='/')
                     extra.append((b'set-cookie', response.headers['set-cookie'].encode('latin-1')))
                 message = {**message, 'headers': list(message.get('headers', [])) + extra}
             await send(message)
@@ -73,7 +73,8 @@ class WorkspaceMiddleware:
                 length = int(headers.get('content-length', '0'))
             except ValueError:
                 return await reject(400, 'The request has an invalid content length.')
-            limit = MAX_REQUEST_BYTES if path == '/api/models' else 128 * 1024
+            geometry_upload = path.startswith('/api/sessions/') and path.endswith('/geometry')
+            limit = MAX_REQUEST_BYTES if path == '/api/models' or geometry_upload else 128 * 1024
             if length < 0 or length > limit:
                 return await reject(413, 'This request is too large. STL files can be up to 20 MB.')
             if self.hosted:

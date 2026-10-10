@@ -21,6 +21,8 @@ from .materials import MATERIALS
 from .schemas import SimulationRequest
 from .solver import SimulationError, VolumeMesh, create_volume, solve
 from .web import WorkspaceMiddleware
+from .session_api import router as session_router
+from .sessions import session_store
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_BYTES = 20*1024*1024
@@ -30,6 +32,8 @@ MODEL_TTL_SECONDS = 15*60 if HOSTED else 2*60*60
 
 @asynccontextmanager
 async def lifespan(app):
+    if not HOSTED:
+        session_store().viewer_started()
     async def expire_parts():
         while True:
             await asyncio.sleep(60)
@@ -49,6 +53,7 @@ async def lifespan(app):
 
 app = FastAPI(title="MakerSim", docs_url=None, redoc_url=None, lifespan=lifespan)
 app.add_middleware(WorkspaceMiddleware, hosted=HOSTED)
+app.include_router(session_router)
 if HOSTED:
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=os.getenv('MAKERSIM_ALLOWED_HOSTS', 'makersim.rawcastdigital.com,127.0.0.1,localhost').split(','))
 

@@ -13,6 +13,7 @@ from .local import read_bytes, read_json, run_test as run_local_test, validate_t
 from .capture import capture_report as capture_local_report, create_review as create_local_review
 from .workflow import WORKFLOW_INSTRUCTIONS, get_workflow as get_local_workflow
 from .numerical import check_convergence as local_convergence, evaluate_goals as local_goals, query_field as local_query_field
+from .sessions import session_store
 
 mcp = FastMCP("MakerSim", instructions=WORKFLOW_INSTRUCTIONS)
 READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False)
@@ -164,6 +165,139 @@ def capture_result(report_path: str, output_dir: str, stl_path: str | None = Non
 def create_review(report_paths: list[str], output_path: str) -> dict[str, Any]:
     """Create a portable visual history from saved reports with captures. Review any revision as a branch parent."""
     return call_local(create_local_review, report_paths, output_path)
+
+
+@mcp.tool(annotations=RUN)
+def create_design_session(objective: str, project: str = 'My project', part: str = 'New part',
+                          mode: Literal['interactive', 'auto', 'teaching'] = 'interactive',
+                          source: Literal['selected', 'copy', 'scratch'] = 'copy',
+                          max_iterations: int = 4, max_seconds: float = 1800, max_tokens: int | None = None) -> dict[str, Any]:
+    """Save isolated design context. Connect a named agent separately; saving or reopening never starts work."""
+    return call_local(session_store().create, {'objective': objective, 'project': project, 'part': part,
+        'mode': mode, 'source': source, 'budgets': {'max_iterations': max_iterations, 'max_seconds': max_seconds, 'max_tokens': max_tokens}})
+
+
+@mcp.tool(annotations=READ_ONLY)
+def get_design_session(session_id: str, after: int = 0, limit: int = 100) -> dict[str, Any]:
+    """Read saved context, agent connection and human messages. A live pause requires an explicit human resume."""
+    return call_local(session_store().events, session_id, after, limit)
+
+
+@mcp.tool(annotations=READ_ONLY)
+def recall_design_context(session_id: str, query: str = '', limit: int = 30) -> dict[str, Any]:
+    """Retrieve this part/branch's lessons, corrections and results. No other project or sibling branch is searched."""
+    return call_local(session_store().context, session_id, query, limit)
+
+
+@mcp.tool(annotations=RUN)
+def connect_design_agent(session_id: str, agent_name: str, supports_controls: bool = False) -> dict[str, Any]:
+    """Announce any compatible agent app by name. Connection alone never starts or resumes design work.
+
+    Set supports_controls only if the client honors MakerSim pause/continue gates before every CAD/test step.
+    The default is a viewing/feedback connection; work is authorized from the human's chosen agent app.
+    Keep the returned run_id for this connection. A different run cannot inherit its execution authority.
+    """
+    return call_local(session_store().connect_agent, session_id, agent_name, supports_controls)
+
+
+@mcp.tool(annotations=RUN)
+def update_design_connection(session_id: str, run_id: str,
+                             action: Literal['heartbeat', 'disconnect'] = 'heartbeat',
+                             seen_sequence: int | None = None) -> dict[str, Any]:
+    """Refresh agent presence every 30 seconds, including while paused; disconnect when the client stops.
+
+    Browser streaming connectivity is separate from agent presence. A service restart requires a fresh heartbeat.
+    Disconnection never erases saved geometry/history. Late updates from replaced connections are rejected.
+    For disconnect, window-control clients must supply seen_sequence: the last event cursor read and handled.
+    New human input after that cursor blocks disconnection. Read and handle it, then retry with the updated cursor.
+    """
+    return call_local(session_store().agent_signal, session_id, run_id, action, seen_sequence)
+
+
+@mcp.tool(annotations=RUN)
+def authorize_design_run(session_id: str, run_id: str, human_instruction: str,
+                         action: Literal['start', 'resume'] = 'start') -> dict[str, Any]:
+    """Relay an explicit human start/resume instruction from the chosen agent app. Never manufacture approval.
+
+    Call start only for a newly connected run that the human asked to begin. Read scoped history first.
+    Resume an interrupted live run only after the human explicitly resumes it. New instructions/questions,
+    mode changes, reconnecting or reopening MakerSim are not approval. Recorded text is the trusted client's
+    attestation of human intent, not independent proof. Starting a new run supersedes unfinished old leases.
+    """
+    return call_local(session_store().authorize_run, session_id, run_id, human_instruction, action)
+
+
+@mcp.tool(annotations=RUN)
+def publish_design_event(session_id: str, kind: Literal['plan', 'prediction', 'explanation', 'decision', 'lesson', 'checkpoint'],
+                         message: str, phase: Literal['plan', 'do', 'check', 'act'] | None = None,
+                         data: dict[str, Any] | None = None, run_id: str | None = None) -> dict[str, Any]:
+    """Explain visible work or save scoped memory. Lessons require data.evidence_type (hypothesis/simulation/human_observation/physical_test).
+
+    Include evidence, conditions and rejected approaches. Explanations can answer questions while paused;
+    they never restart work. Checkpoints pause when the human enables manual checkpoint continuation.
+    """
+    return call_local(session_store().publish, session_id, kind, message, data, phase, run_id)
+
+
+@mcp.tool(annotations=RUN)
+def report_design_activity(session_id: str, kind: Literal['thinking', 'explaining', 'waiting', 'working'],
+                           message: str, operation_id: str | None = None, run_id: str | None = None) -> dict[str, Any]:
+    """Keep the human informed before text reasoning/explanations or while awaiting input. Never resumes a pause.
+
+    Say what you are considering in plain language; do not expose private chain of thought.
+    Refresh long activities every 30 seconds. Use working plus the active operation_id for CAD progress;
+    sketching/simulation labels come from the operation itself. Use waiting when text work ends.
+    Completed explanation events also clear explaining activity. Stale operation IDs are rejected.
+    """
+    return call_local(session_store().report_activity, session_id, kind, message, operation_id, run_id)
+
+
+@mcp.tool(annotations=RUN)
+def begin_design_step(session_id: str, description: str, phase: Literal['plan', 'do', 'check', 'act'] = 'do',
+                       run_id: str | None = None) -> dict[str, Any]:
+    """Acquire permission for ONE connected CAD operation. Call before each edit; stop on session_paused or budget_reached.
+
+    Use the returned operation_id in finish_design_step. An already-running edit may reach its safe boundary
+    after an interruption, but the next edit is blocked. Keep operations short for responsive intervention.
+    """
+    return call_local(session_store().begin_step, session_id, description, phase, run_id=run_id)
+
+
+@mcp.tool(annotations=RUN)
+def finish_design_step(session_id: str, operation_id: str, explanation: str, stl_path: str | None = None,
+                        unit: Literal['mm', 'inch'] = 'mm', revision: str | None = None,
+                        cad_reference: str | None = None, tokens_used: int = 0, error: str | None = None) -> dict[str, Any]:
+    """Preserve a completed CAD edit and export a live STL snapshot to the viewport. Works at a paused safe boundary.
+
+    The snapshot is immutable. cad_reference identifies the editable CAD revision. Report incremental token
+    usage when available; it is accounting, not a provider cap. This tool never resumes a human pause.
+    """
+    return call_local(session_store().finish_step, session_id, operation_id, explanation, stl_path,
+                      unit, revision, cad_reference, tokens_used, error)
+
+
+@mcp.tool(annotations=RUN)
+def run_session_test(session_id: str, test_path: str, stl_path: str | None = None,
+                      revision: str | None = None, resolution: int = 28, max_cells: int = 4800,
+                      run_id: str | None = None) -> dict[str, Any]:
+    """Run the existing solver within session checkpoints/budgets; save immutable geometry/test/report and stream results.
+
+    Omit stl_path to test the current saved revision. Units must match the test. Check scoped context and
+    publish a prediction first. A solver in progress finishes safely after interruption, then remains paused.
+    """
+    return call_local(session_store().run_simulation, session_id, test_path, stl_path, revision, resolution, max_cells, run_id)
+
+
+@mcp.tool(annotations=RUN)
+def branch_design_session(session_id: str, sequence: int | None = None, objective: str | None = None) -> dict[str, Any]:
+    """Create an isolated paused branch from an exact timeline event. Later parent work cannot bleed into its memory."""
+    return call_local(session_store().fork, session_id, sequence, objective)
+
+
+@mcp.tool(annotations=RUN)
+def complete_design_session(session_id: str, summary: str, run_id: str | None = None) -> dict[str, Any]:
+    """Stop with Candidate ready for review. Explain numerical outcomes, fit/print concerns and remaining physical validation."""
+    return call_local(session_store().complete, session_id, summary, run_id)
 
 
 def main():

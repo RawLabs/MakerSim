@@ -76,7 +76,8 @@ try {
   const readMovement=async()=>Number((await page.locator('#result-movement').innerText()).replace(/,/g,'').replace(' mm',''));
   const smallMovement=await readMovement();
   assert.ok(smallMovement>0);
-  assert.match(await page.locator('#result-force').innerText(),/22.24 N/);
+  assert.equal(await page.locator('#result-force').innerText(),'5 lb');
+  assert.equal(await page.locator('#force-unit').inputValue(),'lbf');
   const smallStress=Number((await page.locator('#result-stress').innerText()).replace(/,/g,'').replace(' MPa',''));
   await page.locator('#movement-scale').selectOption('0.01');
   assert.match(await page.locator('#deformation-label').innerText(),/reduced 0.01×/);
@@ -92,6 +93,7 @@ try {
   await page.locator('#result-panel').waitFor({state:'visible',timeout:60000});
   assert.equal(await page.locator('#movement-scale').inputValue(),'10','The display scale stays fixed across load changes');
   const largeMovement=await readMovement();
+  assert.equal(await page.locator('#result-force').innerText(),'50 lb');
   assert.ok(Math.abs(largeMovement/smallMovement-10)<.01,'50 lb must calculate ten times the movement of 5 lb');
   const largeStress=Number((await page.locator('#result-stress').innerText()).replace(/,/g,'').replace(' MPa',''));
   assert.ok(Math.abs(largeStress/smallStress-10)<.01);
@@ -129,13 +131,20 @@ try {
   assert.match(await page.locator('#direction-status').innerText(),/Custom/);
   await page.locator('[data-direction=down]').click();
   assert.equal(await page.locator('#simulate').isDisabled(),false);
+  await page.locator('#force-unit').selectOption('kg');
+  await page.locator('#force').fill('1');
   await page.locator('#simulate').click();
   await page.locator('#result-panel').waitFor({state:'visible',timeout:60000});
+  assert.equal(await page.locator('#result-force').innerText(),'1 kg');
+  await page.locator('#force-unit').selectOption('lbf');
+  assert.equal(await page.locator('#result-panel').isVisible(),true,'Unit changes preserve the solved result.');
+  assert.equal(await page.locator('#result-force').innerText(),'2.205 lb');
+  assert.ok(Math.abs(Number(await page.locator('#force').inputValue())-9.80665/4.4482216152605)<1e-9);
   await page.locator('#undo-hold').click();
   assert.equal(await page.locator('#result-panel').isVisible(),false);
   await page.locator('#force-unit').selectOption('kg');
   await page.locator('#force').fill('1');
-  assert.match(await page.locator('#force-equivalent').innerText(),/9.8 N/);
+  assert.match(await page.locator('#force-equivalent').innerText(),/2.205 lb/);
 
   // Upload path, inch rescaling, help and narrow viewport layout.
   const chooser=page.waitForEvent('filechooser');

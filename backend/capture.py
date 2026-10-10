@@ -142,13 +142,13 @@ def draw_image(path, vertices, faces, stress, report, case, bounds, stress_max, 
     if geometry:
         ax.set_axis_off()
     spec = report["test_spec"]
+    load = spec["load_cases"][report["load_cases"].index(case)]
     if view.startswith("stress"):
         def in_view(point):
             return view != "stress_detail" or np.all((np.asarray(point) >= low) & (np.asarray(point) <= high))
         for patch in spec["fixtures"]:
             if in_view(patch["point"]):
                 ax.scatter(*patch["point"], color="#139b76", s=75, depthshade=False)
-        load = spec["load_cases"][report["load_cases"].index(case)]
         point = np.asarray(load["load"]["point"])
         direction = np.asarray(load["direction"])
         start = point-direction*span*.17
@@ -160,7 +160,8 @@ def draw_image(path, vertices, faces, stress, report, case, bounds, stress_max, 
              "stress_isometric": "Surface stress · isometric", "stress_underside": "Surface stress · underside",
              "stress_detail": "Surface stress · detail", "stress_side": "Surface stress · side",
              "movement": f"Movement · {movement_scale:g}× display scale"}[view]
-    fig.suptitle(f"{revision} | {label}\n{case['name']} · {case['force_newtons']:.4g} N", fontsize=15)
+    load_unit = {"lbf": "lb", "kg": "kg", "stone": "stone", "N": "N"}[load["unit"]]
+    fig.suptitle(f"{revision} | {label}\n{case['name']} · {load['magnitude']:.4g} {load_unit}", fontsize=15)
     caption = (f"Actual max movement: {case['max_displacement_mm']:.6g} mm   |   "
                f"Peak surface stress: {case['peak_surface_stress_mpa']:.6g} MPa")
     if geometry:

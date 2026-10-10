@@ -39,6 +39,19 @@ uv sync --locked
 The checks build `frontend/dist`, which is included in the VM snapshot. The guest
 needs no Node development server. Use one Python worker only.
 
+`scripts/check.sh` includes the local CLI/MCP and persistent-session tests,
+session display/activity and load-unit checks, and the production build. For
+live session/SSE browser verification with Playwright and Chromium available,
+also run `node scripts/session-smoke.mjs`; see
+[verification](../README.md#verification) for environment overrides.
+
+Persistent engineering sessions are available only in the local workspace.
+Keep `MAKERSIM_HOSTED=1` for the public guest: its `/api/sessions` routes return
+404 and the agent window stays unavailable. Local session state is saved in
+`.makersim/sessions/` or `MAKERSIM_SESSION_DIR`; keep that directory out of guest
+snapshots and static landing uploads. A Git push updates the repository;
+the VM and landing page use the separate deployment steps below.
+
 ## Prepare and install the VM
 
 Install `qemu-system-x86 qemu-img libvirt dnsmasq nftables cloud-image-utils` using

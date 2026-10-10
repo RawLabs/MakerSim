@@ -111,6 +111,14 @@ export class PartViewer {
     this.makeGrid(span,geometry.boundingBox.min.z-span*.045);this.fit();this.redrawMarkers();this.recolor();
     return dimensions.toArray();
   }
+  clearFile() {
+    this.endDrag();
+    if(this.part){this.scene.remove(this.part);this.part.geometry.dispose();this.part.material.dispose();this.part=null;}
+    this.original=null;this.colors=null;this.fixtures=[];this.load=null;this.result=null;
+    this.displacements=null;this.stress=null;this.deform=false;this.deformationScale=1;this.direction=[0,0,-1];
+    this.brush.visible=false;this.span=100;this.makeGrid(100,-30);this.redrawMarkers();
+    this.setMode('orbit');this.setBusy(this.busy);this.fit();this.callbacks.selection();
+  }
   fit() {
     const radius=this.part?.geometry.boundingSphere?.radius || 60;
     const horizontal=2*Math.atan(Math.tan(THREE.MathUtils.degToRad(this.camera.fov/2))*this.camera.aspect);

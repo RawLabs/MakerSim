@@ -7,6 +7,7 @@ from .local import AgentError, compare_runs, get_result, inspect_model, list_mat
 from .capture import capture_report, create_review
 from .workflow import get_workflow
 from .numerical import check_convergence, evaluate_goals, query_field
+from .session_cli import add_commands as add_session_commands, execute as execute_session
 
 
 def add_camera_options(parser):
@@ -26,6 +27,7 @@ def camera_arguments(args):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Run MakerSim locally for an AI agent. Successful commands print JSON.")
     commands = parser.add_subparsers(dest="command", required=True)
+    add_session_commands(commands)
     commands.add_parser("schema", help="Print the JSON schema for a reusable test specification.")
     commands.add_parser("goal-schema", help="Print the JSON schema for relative comparison goals.")
     commands.add_parser("workflow", help="Read the agent design, test, capture, review and branching workflow.")
@@ -90,7 +92,9 @@ def main(argv=None):
     review.add_argument("--output", required=True)
     args = parser.parse_args(argv)
     try:
-        if args.command == "schema":
+        if args.command == 'session':
+            output = execute_session(args)
+        elif args.command == "schema":
             output = LocalTestSpec.model_json_schema()
         elif args.command == "goal-schema":
             output = ComparisonGoals.model_json_schema()
