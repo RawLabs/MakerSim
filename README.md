@@ -608,6 +608,19 @@ geometry and loading are a demonstration, not a validated bracket design.
 Warm colors identify concentrated stress within this run. Colors rescale with
 each simulation and are not a failure scale.
 
+<details>
+<summary>Compare 5 lb and 50 lb at the same movement scale</summary>
+
+The same bracket and test settings calculate 0.3948 mm maximum movement at
+5 lb and 3.948 mm at 50 lb. Both previews use **10× exaggerated movement**, so
+the tenfold load increase remains visible at a fixed display scale.
+
+![MakerSim displaying a 5 lb test load and 0.3948 mm calculated maximum movement at a 10× display scale](artifacts/workspace-movement-5lb.png)
+
+![MakerSim displaying a 50 lb test load and 3.948 mm calculated maximum movement at the same 10× display scale](artifacts/workspace-movement-50lb.png)
+
+</details>
+
 ### Small hook: simulation and real life
 
 <p align="center">
