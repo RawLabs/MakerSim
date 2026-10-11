@@ -1,0 +1,9 @@
+# Only send the Python project and its bundled data to the build.
+*
+!Dockerfile
+!pyproject.toml
+!uv.lock
+!backend/
+!backend/**
+**/__pycache__/
+**/*.pyc

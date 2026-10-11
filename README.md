@@ -110,6 +110,10 @@ sampled patch coverage, material provenance and validity notes.
 
 ### Connect a local MCP client
 
+For container startup, protocol inspection, and Glama publication, see
+[MCP directory publication](docs/mcp-directory.md). The root Dockerfile starts
+the same local stdio server and includes its example and material data.
+
 Use the installed `makersim-mcp` executable as a stdio server. For clients that
 accept a `mcpServers` configuration:
 
