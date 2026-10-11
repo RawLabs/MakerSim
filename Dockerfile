@@ -11,7 +11,7 @@ ENV PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
     UV_NO_CACHE=1
 
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock LICENSE ./
 RUN uv sync --locked --no-dev --no-install-project
 COPY backend/ ./backend/
 RUN uv sync --locked --no-dev --no-editable

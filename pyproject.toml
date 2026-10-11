@@ -3,6 +3,8 @@ name = "makersim"
 version = "0.1.0"
 description = "A visual load-path playground for 3D-printed parts"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
   "fastapi>=0.115,<1",
   "uvicorn>=0.34,<1",
@@ -18,7 +20,7 @@ makersim = "backend.cli:main"
 makersim-mcp = "backend.mcp_server:main"
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]

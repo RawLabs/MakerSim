@@ -6,6 +6,7 @@ on:
     paths:
       - Dockerfile
       - .dockerignore
+      - LICENSE
       - pyproject.toml
       - uv.lock
       - backend/**
@@ -15,6 +16,7 @@ on:
     paths:
       - Dockerfile
       - .dockerignore
+      - LICENSE
       - pyproject.toml
       - uv.lock
       - backend/**

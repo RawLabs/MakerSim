@@ -3,6 +3,7 @@
 !Dockerfile
 !pyproject.toml
 !uv.lock
+!LICENSE
 !backend/
 !backend/**
 **/__pycache__/

@@ -4,6 +4,11 @@ The canonical source is <https://github.com/RawLabs/MakerSim>. The local stdio
 server starts without credentials, a browser, a model download, or a hosted
 endpoint. The temporary website is not an MCP endpoint.
 
+The root [LICENSE](../LICENSE) grants the MIT License for MakerSim's original
+software and documentation. Artwork restrictions and third-party notices are
+documented in the [README](../README.md#license-and-third-party-notices).
+Glama requires a non-empty project license before approving a submission.
+
 ## Glama submission
 
 1. Sign in through GitHub at <https://glama.ai/mcp/servers> and choose Add Server.
@@ -15,15 +20,16 @@ endpoint. The temporary website is not an MCP endpoint.
    > parts, CAD revision comparisons, visual reviews, and persistent
    > human-guided design sessions.
 
-3. Paste the complete contents of the root [Dockerfile](../Dockerfile) into
-   Glama's Dockerfile/build settings directly, as required by the directory PR.
+3. Wait for submission approval and the email explaining how to provide a
+   Dockerfile. Follow those instructions to paste the complete contents of the
+   root [Dockerfile](../Dockerfile) directly into Glama, as required by the
+   directory PR.
    Use the repository root as the build context and the image's default stdio
    entrypoint. No environment credentials or exposed HTTP port are required.
 4. Run Glama's checks and wait for a successful build and introspection. MakerSim
    exposes 27 tools and empty resource, resource-template, and prompt lists.
    Review every reported check; a local smoke test does not establish Glama's
-   evaluation result. The project's license remains unspecified; do not select
-   a license in a directory that the repository has not adopted.
+   evaluation result.
 5. Confirm the listing's actual path and append its score badge after the
    description in the [directory PR](https://github.com/punkpeye/awesome-mcp-servers/pull/16164).
    For a listing at `RawLabs/MakerSim`, the badge is:

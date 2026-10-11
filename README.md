@@ -874,8 +874,10 @@ a directory for desktop/mobile screenshots; all session data is temporary.
 
 ## License and third-party notices
 
-A project-wide license for MakerSim has not yet been selected. The supplied
-logo and artwork are not granted a separate reuse license by this repository.
+MakerSim's original software and documentation are licensed under the
+[MIT License](LICENSE), copyright 2026 RawLabs. The supplied logo and artwork
+are excluded from that grant and are not granted a separate reuse license by
+this repository.
 
 Bundled third-party components retain their own licenses:
 
