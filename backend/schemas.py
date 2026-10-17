@@ -44,6 +44,7 @@ class SimulationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     model_id: str = Field(min_length=1, max_length=64)
     material_id: str = Field(default="generic-pla", max_length=100)
+    mesh_detail: Literal['standard', 'fine'] = 'standard'
     print_settings: PrintSettings = Field(default_factory=PrintSettings)
     fixtures: list[Patch] = Field(min_length=1, max_length=160)
     load: Patch

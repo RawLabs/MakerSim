@@ -596,9 +596,11 @@ the hosted preview does not expose `/api/sessions`.
 Visitors should use non-sensitive designs. Multipart parsing can use temporary
 files; models and results are not saved as permanent documents. Hosted parts
 expire after 15 minutes and a one-minute cleanup removes expired models from
-memory. The trial admits twelve models globally and two per workspace, two
-concurrent uploads, and one simulation at a time. Uploads are at most 20 MB;
-request bodies, mesh sizes, and requests per client are bounded.
+memory. The trial admits twelve models globally and two per workspace, within a
+shared 192 MiB surface-mesh budget. Two upload requests can be received at once;
+dense STL processing and simulation share a single processing gate. Uploads are
+at most 64 MB and 1,000,000 triangles; request bodies, mesh sizes, and requests
+per client are bounded.
 
 ## Demo screens
 
@@ -665,11 +667,13 @@ or permanent deformation over time.
 | **Your print** | Choose filament, walls, solid layers, infill, and the build axis. |
 | **Hold & pull** | Paint several held areas and place a distributed load patch with a draggable arrow. |
 | **Add a little weight** | Enter pounds or kilograms of hanging weight, with a familiar weight equivalent. Stone and newtons remain available. |
+| **Simulation detail** | Choose Standard for a faster preview or Fine for smaller solver cells; inspect the actual mesh size under About this preview. |
 | **Simulate** | Read the test load in your chosen unit, calculated maximum movement and peak surface stress; explore relative stress and movement at a fixed, adjustable display scale. |
 
 The viewer supports orbit, zoom, pan, camera fit, grid visibility, and optional
-slow rotation. Changing material, print settings, holds, direction, or load clears
-the previous result so the displayed preview matches the current setup.
+slow rotation. Changing material, print settings, holds, direction, load, or
+simulation detail clears the previous result so the displayed preview matches
+the current setup.
 Changing only the load unit converts the displayed amount and preserves the same
 physical load and solved result. The browser remembers the selected unit across
 reloads, agent updates and history replay. With no saved preference, agent previews
@@ -677,21 +681,61 @@ use the saved test's weight unit, or pounds when a test uses newtons.
 
 STLs do not declare their units. MakerSim defaults to millimetres; choose inches
 when appropriate and check the displayed dimensions. Files can contain up to
-20 MB and 120,000 triangles. Open surfaces can be viewed but must be repaired
-before solving. Simulation requires one connected, closed solid with consistent
-triangle winding. Inconsistent triangle directions produce a repair message
+64 MB and 1,000,000 triangles in the browser, local CLI, and MCP. Binary STL
+is preferable for dense exports because it is smaller than ASCII. Open surfaces
+can be viewed but must be repaired before solving. Simulation requires one
+connected, closed solid with consistent triangle winding. Inconsistent triangle
+directions produce a repair message
 before they can affect the print-property estimate. A hollow solid may have
 separate closed surfaces around enclosed cavities; those are accepted after
 containment checks. Disconnected solids, overlapping cavities, and touching
 or crossing cavity surfaces remain rejected.
 
+### Contact areas and mesh comparisons
+
+**Contact size** is the diameter of the patch created by a new hold or pull click.
+Changing the slider does not resize existing patches. Use **Undo last hold** or
+**Clear held and pull areas** to replace holds; click again with **Pull here** to
+replace the load patch. The hold count is the number of painted patches, not the
+number of fasteners. Each green dot marks a patch centre.
+
+Turn off **Show movement** and select **Original part** to inspect the painted
+hold areas and load marker. For an idealized screw mounting, place holds around
+the actual restrained contact areas, such as the screw heads or washers. Large
+patches can hold much of the base rigidly and strongly affect calculated movement
+and stress. Match the mounting assumptions to the intended setup; smaller patches
+are not automatically more accurate. MakerSim does not model bolt preload or
+contact between the part and its mounting surface.
+
+Place the pull where the load actually bears on the part. Check its arrow against
+the part's mounted orientation: **Back** means +Y and **Down** means −Z in model
+coordinates. Orbiting the camera does not change these directions.
+
+To compare mesh detail, solve once in **Standard**, then select **Fine** and rerun
+with the same geometry, material, print settings, holds, pull, and force. Compare
+the displayed movement, peak stress, and actual cell size under **About this
+preview**. Changing patch sizes between runs changes the test itself. A noticeable
+change between Standard and Fine means resolution still affects the result; two
+levels alone do not establish mesh convergence. Compare numerical values as well
+as colors, because each heatmap uses its own relative scale.
+
 ## Physics and limits
 
 The solver classifies the closed STL with triangle scanlines, builds a bounded
-voxel volume of up to 4,800 cells, and divides each cell into six conforming
+voxel volume, and divides each cell into six conforming
 linear tetrahedra. If coarse sampling splits a connected part or misses its
 thickness, meshing retries with smaller cells within the same budget. Actual
 separate solids remain rejected; meshing does not fill gaps or discard pieces.
+
+The browser's **Simulation detail** control selects Standard (28 target cells
+along the longest dimension, up to 4,800 occupied cells) or Fine (40 target
+cells, up to 8,000 occupied cells / 48,000 tetrahedra). Fine takes longer and
+uses more memory. The result reports actual cell size and explains when the
+budget required coarser cells. STL surface triangle count is independent of
+solver resolution; a denser export alone does not refine the calculation.
+For local CLI/MCP runs, the equivalent Fine settings are `resolution=40` and
+`max_cells=8000`; explicit refinement and convergence tools remain available.
+Finer meshes still require convergence checks before trusting numerical detail.
 
 The model assembles a three-dimensional orthotropic elasticity matrix in
 **mm, N, MPa** and solves free degrees of freedom with SciPy. Held patches

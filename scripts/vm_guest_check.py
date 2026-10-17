@@ -4,6 +4,7 @@ import json
 import math
 from pathlib import Path
 import socket
+import sys
 import time
 import urllib.request
 
@@ -29,6 +30,11 @@ def check():
             pass
         time.sleep(1)
     assert json.loads(data)['mode'] == 'hosted'
+    if '--preview' in sys.argv:
+        assert call('/api/sessions')[0] == 404
+        status, catalog, _ = call('/api/materials')
+        limits = json.loads(catalog).get('limits')
+        assert status == 200 and limits == {'stl_bytes':64*1024*1024,'triangles':1000000}
     data = Path('/opt/makersim/backend/data/backpack-bracket.stl').read_bytes()
     boundary = 'makersim-readiness'
     upload = (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="bracket.stl"\r\nContent-Type: application/octet-stream\r\n\r\n'.encode()
@@ -47,6 +53,13 @@ def check():
     field = json.loads(data)
     assert field['checks']['relative_force_balance'] < 1e-5, field['checks']
     assert math.isfinite(field['max_displacement_mm']) and field['max_displacement_mm'] > 0
+    if '--preview' in sys.argv:
+        payload['mesh_detail'] = 'fine'
+        status, fine_data, _ = call('/api/simulate',json.dumps(payload),cookie)
+        assert status == 200,(status,fine_data[:200])
+        fine = json.loads(fine_data)
+        assert fine['mesh']['cell_mm'] < field['mesh']['cell_mm']
+        assert fine['checks']['relative_force_balance'] < 1e-8
     body = json.dumps(payload).replace('-1e+308', 'NaN')
     assert call('/api/simulate', body, cookie)[0] == 422
     assert call('/api/models', b'x', cookie, extra={'Origin':'https://other.example'})[0] == 403

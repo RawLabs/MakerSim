@@ -1,4 +1,4 @@
-"""Apply only geometry/solver changes through the VM's temporary CD-ROM."""
+"""Apply a bounded MakerSim application update through its temporary CD-ROM."""
 import argparse
 import hashlib
 import json
@@ -80,7 +80,7 @@ def main():
     try:
         state = vm('domstate',DOMAIN).stdout.strip()
         assert state in ('running','shut off'),state
-        status('Stopping MakerSim VM for the two-file update')
+        status('Stopping MakerSim VM for the application update')
         if state == 'running':
             vm('shutdown',DOMAIN)
             for _ in range(40):

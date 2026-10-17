@@ -1,5 +1,6 @@
 """Dependency-free guest regression for connected solids with enclosed voids."""
 import numpy as np
+import sys
 from backend.geometry import TriangleMesh, read_stl, write_binary_stl
 from backend.materials import MATERIALS
 from backend.schemas import Patch, SimulationRequest
@@ -38,6 +39,28 @@ def check():
     else:
         raise AssertionError('Disconnected solid was accepted')
     print('MAKERSIM_CAVITY_CHECKS_PASSED',flush=True)
+    if '--preview' in sys.argv:
+        from backend.app import Model, run_solver, materials
+        assert materials()['limits'] == {'stl_bytes':64*1024*1024,'triangles':1000000}
+        mesh = box((60,20,20))
+        triangles = mesh.triangles
+        for _ in range(8):
+            a,b,c = triangles[:,0],triangles[:,1],triangles[:,2]
+            ab,bc,ca = (a+b)/2,(b+c)/2,(c+a)/2
+            triangles = np.concatenate([np.stack(p,axis=1) for p in
+                                        [(a,ab,ca),(ab,b,bc),(ca,bc,c),(ab,bc,ca)]])
+        data = write_binary_stl(triangles)
+        assert len(data) > 20*1024*1024
+        dense = read_stl(data)
+        del data,triangles
+        assert len(dense.faces) == 786432 and dense.is_watertight
+        standard = run_solver(Model(dense,0),request,MATERIALS['generic-petg'])
+        request.mesh_detail = 'fine'
+        fine = run_solver(Model(dense,0),request,MATERIALS['generic-petg'])
+        assert fine['mesh']['cell_mm'] < standard['mesh']['cell_mm']
+        assert fine['mesh']['elements'] <= 48000
+        assert fine['checks']['relative_force_balance'] < 1e-8
+        print('MAKERSIM_DENSE_MESH_CHECKS_PASSED',flush=True)
 
 
 if __name__ == '__main__':

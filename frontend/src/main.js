@@ -8,6 +8,7 @@ import brandArtwork from '../../artifacts/MakerSimLogos.png';
 
 const $=(id)=>document.getElementById(id);
 const state={model:null,file:null,materials:[],busy:false,result:null,viewportGeneration:0};
+let maxStlBytes=64*1024*1024;
 const loadUnitPreferenceKey='makersim.loadUnit';
 function savedLoadUnit(){
   try {const unit=localStorage.getItem(loadUnitPreferenceKey);return Object.hasOwn(loadUnitFactors,unit)?unit:null;}
@@ -64,13 +65,13 @@ $('app').innerHTML=`
           <div class="direction-buttons" role="group" aria-label="Force direction">${[['down','Down'],['up','Up'],['left','−X'],['right','+X'],['forward','−Y'],['back','+Y']].map(([name,label])=>`<button data-direction="${name}" class="${name==='down'?'selected':''}">${label}</button>`).join('')}</div>
           <small class="force-hint">Or click the part and drag the arrow in any direction.</small>
         </section>
-        <div class="run-area"><button id="simulate" class="simulate-button" disabled>${icon('play')}<span>Simulate</span>${icon('arrow')}</button><p id="run-hint">Add a part, a hold and a pull to get started.</p></div>
+        <div class="run-area"><label class="field-label" for="mesh-detail">Simulation detail</label><select id="mesh-detail" class="full-select"><option value="standard">Standard · faster preview</option><option value="fine">Fine · smaller mesh cells</option></select><p class="force-hint">Fine resolves smaller features and takes longer. Actual cell size appears with the result.</p><button id="simulate" class="simulate-button" disabled>${icon('play')}<span>Simulate</span>${icon('arrow')}</button><p id="run-hint">Add a part, a hold and a pull to get started.</p></div>
       </aside>
       <section class="viewer-panel" aria-label="3D workspace">
         <div class="viewer-top"><div class="viewer-title">${icon('cube')}<span id="viewer-name">Your 3D workspace</span><span class="viewer-badge" id="viewer-badge">READY TO EXPLORE</span></div><button class="viewer-icon" id="fit-view" aria-label="Fit model in view" title="Fit view">${icon('expand')}</button></div>
         <div class="viewport" id="viewport">
           <input type="file" id="stl-file" accept=".stl" class="visually-hidden" />
-          <div class="empty-view" id="empty-view"><div class="empty-cube">${icon('cube')}</div><span class="empty-eyebrow">EVERY GOOD PRINT STARTS WITH A QUESTION</span><h2>What happens if<br>I pull <em>here?</em></h2><p>Bring in a part. Give it a nudge.<br>Make the invisible a little more visible.</p><button id="viewer-upload" class="primary-light">${icon('upload')}Upload your STL</button><small class="upload-limit">Drop an STL here · up to 20 MB · one solid part</small><button id="load-example" class="example-button">Try a backpack bracket ${icon('arrow')}</button></div>
+          <div class="empty-view" id="empty-view"><div class="empty-cube">${icon('cube')}</div><span class="empty-eyebrow">EVERY GOOD PRINT STARTS WITH A QUESTION</span><h2>What happens if<br>I pull <em>here?</em></h2><p>Bring in a part. Give it a nudge.<br>Make the invisible a little more visible.</p><button id="viewer-upload" class="primary-light">${icon('upload')}Upload your STL</button><small class="upload-limit">Drop an STL here · up to 64 MB · 1,000,000 triangles</small><button id="load-example" class="example-button">Try a backpack bracket ${icon('arrow')}</button></div>
           <div class="canvas-tools" id="canvas-tools"><button id="orbit-tool" class="selected" aria-label="Orbit model" title="Orbit / zoom / pan">${icon('mouse')}</button><span></span><button id="grid-toggle" class="selected" aria-label="Toggle grid" title="Toggle grid">${icon('grid')}</button><button id="rotate-toggle" aria-label="Toggle slow auto rotation" title="Slow auto rotation">${icon('rotate')}</button></div>
           <div id="interaction-tip" class="interaction-tip" hidden>${icon('hand')}<span></span></div>
           <div class="axes" aria-label="Model axes"><span class="axis-z">Z</span><span class="axis-y">Y</span><span class="axis-x">X</span><svg viewBox="0 0 70 70" aria-hidden="true"><path d="M35 39V9" stroke="#81a5ff"/><path d="M35 39 10 55" stroke="#68d6b1"/><path d="M35 39 61 54" stroke="#f39a8c"/></svg></div>
@@ -171,7 +172,7 @@ function setMode(mode) {
 async function loadFile(file,example=false,sessionPreview=false,{obsolete=()=>false,signal}={}) {
   if(!viewer||state.busy)return false;
   if(!file||!file.name.toLowerCase().endsWith('.stl')){showNotice('Choose an STL file to bring your part in.');return;}
-  if(file.size>20*1024*1024){showNotice('This STL is over 20 MB. Export a lower-detail version.');return;}
+  if(file.size>maxStlBytes){showNotice(`This STL is over ${Math.round(maxStlBytes/1024/1024)} MB. Use a binary STL or export at a lower detail level.`);return;}
   if(!sessionPreview){
     try {await agentWindow?.beforePartChange();} catch(error){showNotice(error.message);return false;}
   }
@@ -206,6 +207,7 @@ async function loadFile(file,example=false,sessionPreview=false,{obsolete=()=>fa
 $('stl-file').addEventListener('change',e=>loadFile(e.target.files[0]));
 ['replace-file','viewer-upload'].forEach(id=>$(id).onclick=()=>$('stl-file').click());
 $('stl-unit').onchange=()=>{if(state.file)loadFile(state.file);};
+$('mesh-detail').onchange=()=>{invalidate();updateSelections();};
 $('load-example').onclick=async()=>{
   if(state.busy)return;
   try {const response=await fetch('/api/example');if(!response.ok)throw new Error('The example could not be loaded.');$('stl-unit').value='mm';await loadFile(new File([await response.blob()],'backpack-bracket.stl'),true);}
@@ -271,6 +273,7 @@ $('simulate').onclick=async()=>{
   try {
     const result=await simulate({
       model_id:state.model.model_id,material_id:$('material').value,
+      mesh_detail:$('mesh-detail').value,
       print_settings:{walls:Number($('walls').value),top_layers:Number($('top-layers').value),bottom_layers:Number($('bottom-layers').value),infill:Number($('infill').value),orientation:$('orientation').value},
       fixtures:viewer.fixtures,load:viewer.load,direction:viewer.direction,
       magnitude:Number($('force').value),unit:$('force-unit').value,
@@ -310,8 +313,10 @@ $('help').onclick=()=>$('help-dialog').showModal();['close-help','help-done'].fo
 $('help-dialog').addEventListener('click',e=>{if(e.target===$('help-dialog'))$('help-dialog').close();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&viewer)setMode('orbit');});
 
-getMaterials().then(({materials,workspace})=>{
+getMaterials().then(({materials,workspace,limits})=>{
   state.materials=materials;
+  if(limits?.stl_bytes)maxStlBytes=limits.stl_bytes;
+  document.querySelector('.upload-limit').textContent=`Drop an STL here · up to ${Math.round(maxStlBytes/1024/1024)} MB · ${(limits?.triangles||1000000).toLocaleString()} triangles`;
   if(workspace?.hosted){
     $('workspace-status').textContent='Public preview';
     $('upload-privacy').textContent=`Your STL is uploaded to an isolated preview server. Parts expire after ${workspace.retention_minutes} minutes and are cleared from memory on the next one-minute cleanup. Use non-sensitive designs. Your browser has a separate temporary workspace.`;

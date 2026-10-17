@@ -44,3 +44,15 @@ def test_cleanup_and_owner_replacement_preserve_other_workspaces(monkeypatch):
     api.models[first].created -= api.MODEL_TTL_SECONDS + 1
     api.store_model(data, 'mm', 'bob')
     assert first not in api.models
+
+
+def test_mesh_memory_budget_preserves_existing_owners(monkeypatch):
+    monkeypatch.setattr(api, 'models', api.OrderedDict())
+    mesh = box_mesh()
+    monkeypatch.setattr(api, 'MAX_STORED_MESH_BYTES', mesh.vertices.nbytes+mesh.faces.nbytes)
+    data = write_binary_stl(mesh.triangles)
+    first = api.store_model(data,'mm','alice')['model_id']
+    with pytest.raises(HTTPException) as error:
+        api.store_model(data,'mm','bob')
+    assert error.value.status_code == 429
+    assert list(api.models) == [first]

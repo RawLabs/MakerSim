@@ -6,10 +6,11 @@ is retained exactly for the viewer; only the solver volume is coarse.
 from dataclasses import dataclass, field
 import re
 import struct
+from itertools import islice
 
 import numpy as np
 
-MAX_TRIANGLES = 120000
+from .limits import MAX_STL_BYTES, MAX_TRIANGLES
 MAX_SHELL_CHECKS = 64_000_000
 
 
@@ -44,14 +45,16 @@ class TriangleMesh:
     @property
     def is_watertight(self):
         edges = np.sort(self.faces[:, [[0,1],[1,2],[2,0]]].reshape(-1,2), axis=1)
-        _, counts = np.unique(edges, axis=0, return_counts=True)
+        # Integer edge keys avoid sorting millions of two-column records.
+        _, counts = np.unique(edges[:,0]*len(self.vertices)+edges[:,1], return_counts=True)
         return bool(np.all(counts == 2))
 
     @property
     def has_consistent_winding(self):
         # Shared edges must run in opposite directions on adjacent faces.
         edges = self.faces[:, [[0,1],[1,2],[2,0]]].reshape(-1,2)
-        _, inverse = np.unique(np.sort(edges, axis=1), axis=0, return_inverse=True)
+        ordered = np.sort(edges, axis=1)
+        _, inverse = np.unique(ordered[:,0]*len(self.vertices)+ordered[:,1], return_inverse=True)
         signs = np.where(edges[:,0] < edges[:,1], 1, -1)
         return bool(np.all(np.bincount(inverse, weights=signs) == 0))
 
@@ -193,21 +196,29 @@ def _surfaces_intersect(first,second,second_min,second_max,tolerance):
 
 
 def read_stl(data: bytes, unit: str = 'mm') -> TriangleMesh:
+    if len(data) > MAX_STL_BYTES:
+        raise ValueError('This STL is over 64 MB. Use a binary STL or export at a lower detail level.')
+    triangle_limit = f'Use an STL with at most {MAX_TRIANGLES:,} triangles. Export at a lower detail level.'
     if len(data) >= 84 and 84 + struct.unpack_from('<I', data, 80)[0]*50 == len(data):
         count = struct.unpack_from('<I', data, 80)[0]
         if count > MAX_TRIANGLES:
-            raise ValueError(f'Use an STL with fewer than {MAX_TRIANGLES:,} triangles. Export at a lower detail level.')
+            raise ValueError(triangle_limit)
         dtype = np.dtype([('normal', '<f4', (3,)), ('vertices', '<f4', (3,3)), ('attribute', '<u2')])
         triangles = np.frombuffer(data, dtype=dtype, count=count, offset=84)['vertices'].astype(float)
     else:
         try:
             content = data.decode('ascii')
-            values = re.findall(r'\bvertex\s+(\S+)\s+(\S+)\s+(\S+)', content)
-            if len(values) % 3 or not values or len(values) > MAX_TRIANGLES*3:
-                raise ValueError('Invalid triangle count')
-            triangles = np.array(values, dtype=float).reshape(-1,3,3)
+            matches = re.finditer(r'\bvertex\s+(\S+)\s+(\S+)\s+(\S+)', content)
+            # Bound conversion without retaining millions of Python strings.
+            values = np.fromiter((float(v) for match in islice(matches,MAX_TRIANGLES*3+1)
+                                  for v in match.groups()),dtype=float)
         except (UnicodeDecodeError, ValueError) as error:
             raise ValueError('This file could not be read as an ASCII or binary STL.') from error
+        if values.size > MAX_TRIANGLES*9:
+            raise ValueError(triangle_limit)
+        if not values.size or values.size % 9:
+            raise ValueError('This file could not be read as an ASCII or binary STL.')
+        triangles = values.reshape(-1,3,3)
     if len(triangles) < 4 or not np.isfinite(triangles).all():
         raise ValueError('The STL must contain a finite 3D surface.')
     triangles *= 25.4 if unit == 'inch' else 1
@@ -232,16 +243,19 @@ def voxelize(mesh: TriangleMesh, pitch: float) -> tuple[np.ndarray, np.ndarray]:
     y_values = origin[1] + (np.arange(shape[1])+0.5)*pitch
     z_values = origin[2] + (np.arange(shape[2])+0.5)*pitch
     intersections = [[] for _ in range(shape[1]*shape[2])]
-    for tri in mesh.triangles:
+    triangles = mesh.triangles
+    # Dense exports contain many facets between sample rays. Reject their
+    # projected bounding boxes in bulk instead of looping over every facet.
+    low = np.maximum(0, np.ceil((triangles[:,:,1:].min(axis=1)-origin[1:])/pitch-0.5).astype(int))
+    high = np.minimum(shape[1:]-1, np.floor((triangles[:,:,1:].max(axis=1)-origin[1:])/pitch-0.5).astype(int))
+    for index in np.flatnonzero(np.all(high >= low,axis=1)):
+        tri = triangles[index]
         yz = tri[:, 1:]
         edge1, edge2 = yz[1]-yz[0], yz[2]-yz[0]
         determinant = edge1[0]*edge2[1]-edge1[1]*edge2[0]
         if abs(determinant) < pitch*pitch*1e-12:
             continue
-        lo = np.maximum(0, np.ceil((yz.min(axis=0)-origin[1:])/pitch-0.5).astype(int))
-        hi = np.minimum(shape[1:]-1, np.floor((yz.max(axis=0)-origin[1:])/pitch-0.5).astype(int))
-        if np.any(hi < lo):
-            continue
+        lo, hi = low[index], high[index]
         j, k = np.meshgrid(np.arange(lo[0],hi[0]+1),np.arange(lo[1],hi[1]+1), indexing='ij')
         dy, dz = y_values[j]-yz[0,0], z_values[k]-yz[0,1]
         a = (dy*edge2[1]-dz*edge2[0])/determinant

@@ -175,28 +175,57 @@ started. Libvirt, the dedicated NAT network, and the isolation rules persist.
 Do not stop Legion's separate `cloudflared.service`; it supplies the existing SSH
 tunnel. To start the playground, `sudo virsh -c qemu:///system start makersim`.
 
-Editing the host checkout does not update the VM. A narrowly scoped geometry/solver
-update can use a credential-free, temporary NoCloud disk:
+Editing the host checkout does not update the VM. An application update uses a
+credential-free, temporary NoCloud disk. Run the local checks and build first:
 
 ```bash
-rtk .venv/bin/python -m scripts.prepare_vm_update
+rtk ./scripts/check.sh
+rtk .venv/bin/python -m scripts.prepare_vm_update --preview
 rtk sudo /usr/bin/python scripts/update_vm.py --directory <printed-private-directory>
 ```
 
-Run the sudo command in a visible terminal. It updates only `backend/geometry.py`
-and `backend/solver.py`, restarts the MakerSim VM, and clears temporary workspaces.
-The guest backs up those files, runs synthetic cavity and existing readiness/
-isolation checks, and restores the previous source if its checks fail. The host
+Run the sudo command in a visible terminal. `--preview` updates the built
+`frontend/dist` and seven allowlisted backend modules: `app`, `geometry`, `limits`,
+`materials`, `schemas`, `solver`, and `web`. It restarts only the MakerSim VM and
+clears its temporary workspaces. The guest backs up the old backend and browser,
+runs cavity, dense-STL, Standard/Fine, readiness, and isolation checks, and
+restores both together if a check fails. Previous source hashes and the check log
+remain in `/root/makersim-update-backup/<tag>` inside the guest. The host
 controller ejects the disk and verifies the host SSH connector's process ID and
 configuration remained the same. The seed contains no tunnel credentials or
 user uploads. Its first-boot module list is restricted to staging and running the
-update; existing users and SSH configuration are preserved. Frontend, dependency,
-service, or other application updates still require a separately reviewed guest
-deployment/rebuild.
+update; existing users and SSH configuration are preserved. No dependencies,
+services, tunnel configuration, persistent sessions, or user uploads are copied.
+Without `--preview`, only `geometry.py`, `limits.py`, and `solver.py` are updated.
+Dependency, service, or other backend-module changes require a separate deployment.
+
+The preview accepts 64 MB / 1,000,000-triangle STLs. Dense parsing and solving
+share a processing gate in hosted mode, stored surface meshes share a 192 MiB
+budget, and the existing 1,536 MiB service memory cap remains in force. Fine
+detail targets 40 cells along the longest dimension with an 8,000-cell budget;
+Standard retains 28 / 4,800. More source triangles do not increase solver detail.
 
 Revoke and recreate the dedicated tunnel
 credential if the guest is suspected compromised. The account certificate stays
 on the host. No permanent STL/result archive or analytics is added.
+
+## Verified mesh-detail update, 2026-10-17
+
+The paired preview update passed guest regression and isolation checks. The
+temporary CD-ROM is detached; the controller confirmed the host tunnel and
+isolation configuration were unchanged. All seven public frontend files match
+the tested local build byte for byte. Chromium verified the 64 MB / 1,000,000
+triangle notice, hosted mode, and Standard/Fine selector without JavaScript errors.
+
+A generated closed STL with 786,432 triangles (37.5 MiB) uploaded through the
+public tunnel in 15.11 seconds. Standard solved 16,800 tetrahedra at 2.143 mm
+cell size in 1.53 seconds; Fine solved 47,040 tetrahedra at 1.500 mm in 4.49
+seconds. Both returned displacement and stress fields matching the local
+program within `rtol=1e-7, atol=1e-9`, with relative force-balance errors below
+`1.2e-12`. These timings describe this test shape, not a performance guarantee.
+Separate browser workspaces could not solve that part, and public persistent
+sessions remained unavailable. Local validation passed 125 application tests,
+seven deployment/rollback tests, and the browser workflow including a dense upload.
 
 ## Verified trial deployment, 2026-10-06
 

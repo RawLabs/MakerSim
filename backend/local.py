@@ -9,13 +9,13 @@ from pydantic import ValidationError
 
 from .agent_schemas import LocalTestSpec
 from .geometry import read_stl
+from .limits import MAX_STL_BYTES
 from .materials import MATERIALS
 from .schemas import Patch, SimulationRequest
 from .solver import SimulationError, create_volume, patch_nodes, solve
 
 SCHEMA_VERSION = 1
 SOLVER_VERSION = "0.1.0"
-MAX_STL_BYTES = 20 * 1024 * 1024
 MAX_JSON_BYTES = 32 * 1024 * 1024
 
 

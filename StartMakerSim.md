@@ -6,6 +6,10 @@ Run `./scripts/start.sh`, then open the local URL printed by the launcher.
 It starts at port 8000 and chooses another available port when needed.
 
 See [installation and quick start](README.md#quick-start) for the full setup.
+The local viewer and demo accept STLs up to 64 MB / 1,000,000 triangles. Choose
+**Simulation detail → Fine** for a finer solver mesh. See
+[contact areas and mesh comparisons](README.md#contact-areas-and-mesh-comparisons)
+for setting holds and comparing Standard with Fine.
 
 ## Local MCP / CLI agent
 

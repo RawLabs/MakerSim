@@ -10,19 +10,21 @@ const v3 = (a) => new THREE.Vector3(...a);
 
 function refineGeometry(geometry, target) {
   let positions = geometry.attributes.position.array;
+  const maxTriangles=Math.max(160000,positions.length/9);
   // Subdivide long triangles for a readable field on sparsely triangulated STLs.
-  for (let pass=0;pass<7;pass++) {
-    if (positions.length/9 > 100000) break;
+  for (let pass=0;pass<14;pass++) {
+    let remaining=maxTriangles-positions.length/9;
+    if(remaining<=0)break;
     const next=[]; let changed=false;
     for(let i=0;i<positions.length;i+=9) {
       const a=Array.from(positions.slice(i,i+3)),b=Array.from(positions.slice(i+3,i+6)),c=Array.from(positions.slice(i+6,i+9));
       const points=[a,b,c];
       const lengths=[[0,1],[1,2],[2,0]].map(([u,w])=>points[u].reduce((s,x,k)=>s+(x-points[w][k])**2,0));
       const longest=lengths.indexOf(Math.max(...lengths));
-      if(lengths[longest] > target*target) {
+      if(remaining>0 && lengths[longest] > target*target) {
         const u=points[longest],w=points[(longest+1)%3],other=points[(longest+2)%3];
         const mid=u.map((x,k)=>(x+w[k])/2);
-        next.push(...u,...mid,...other,...mid,...w,...other); changed=true;
+        next.push(...u,...mid,...other,...mid,...w,...other); changed=true;remaining--;
       } else next.push(...a,...b,...c);
     }
     if(!changed) break;
@@ -100,7 +102,7 @@ export class PartViewer {
     geometry.translate(-center.x,-center.y,-center.z);
     geometry.computeBoundingBox();const dimensions=geometry.boundingBox.getSize(new THREE.Vector3());
     const span=Math.max(...dimensions.toArray());
-    geometry=refineGeometry(geometry,span/24);
+    geometry=refineGeometry(geometry,span/40);
     if(this.part){this.scene.remove(this.part);this.part.geometry.dispose();this.part.material.dispose();}
     this.part=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:BLUE,roughness:.65,metalness:.08,side:THREE.DoubleSide}));
     this.scene.add(this.part);this.span=span;
@@ -238,19 +240,41 @@ export class PartViewer {
     this.result=result;
     const pitch=result.mesh.cell_mm;
     const buckets=new Map();
+    const neighborhoods=new Map(),sampled=new Map();
     const key=(x,y,z)=>`${x},${y},${z}`;
     result.positions.forEach((p,i)=>{const k=key(...p.map(x=>Math.floor(x/pitch)));if(!buckets.has(k))buckets.set(k,[]);buckets.get(k).push(i);});
     this.stress=new Float32Array(this.original.length/3);this.displacements=new Float32Array(this.original.length);
     for(let offset=0;offset<this.original.length;offset+=3) {
       const p=Array.from(this.original.slice(offset,offset+3));const cell=p.map(x=>Math.floor(x/pitch));
-      let candidates=[];
-      for(let radius=1;radius<=3&&!candidates.length;radius++) {
-        for(let x=-radius;x<=radius;x++)for(let y=-radius;y<=radius;y++)for(let z=-radius;z<=radius;z++) {
-          const list=buckets.get(key(cell[0]+x,cell[1]+y,cell[2]+z));if(list)candidates.push(...list);
-        }
+      // STL repeats shared vertices. Interpolate each position once and reuse
+      // the search neighborhood for every vertex in the same solver cell.
+      const pointKey=key(...p),previous=sampled.get(pointKey);
+      if(previous!==undefined){
+        this.stress[offset/3]=this.stress[previous/3];
+        for(let k=0;k<3;k++)this.displacements[offset+k]=this.displacements[previous+k];
+        continue;
       }
-      if(!candidates.length)candidates=Array.from({length:result.positions.length},(_,i)=>i);
-      const near=candidates.map(i=>({i,d:result.positions[i].reduce((s,x,k)=>s+(x-p[k])**2,0)})).sort((a,b)=>a.d-b.d).slice(0,4);
+      sampled.set(pointKey,offset);
+      const cellKey=key(...cell);
+      let candidates=neighborhoods.get(cellKey);
+      if(!candidates){
+        candidates=[];
+        for(let radius=1;radius<=3&&!candidates.length;radius++) {
+          for(let x=-radius;x<=radius;x++)for(let y=-radius;y<=radius;y++)for(let z=-radius;z<=radius;z++) {
+            const list=buckets.get(key(cell[0]+x,cell[1]+y,cell[2]+z));if(list)candidates.push(...list);
+          }
+        }
+        if(!candidates.length)candidates=Array.from({length:result.positions.length},(_,i)=>i);
+        neighborhoods.set(cellKey,candidates);
+      }
+      const near=[];
+      for(const i of candidates){
+        const q=result.positions[i],d=(q[0]-p[0])**2+(q[1]-p[1])**2+(q[2]-p[2])**2;
+        if(near.length===4&&d>=near[3].d)continue;
+        let insert=near.findIndex(item=>d<item.d);
+        if(insert<0)insert=near.length;
+        near.splice(insert,0,{i,d});if(near.length>4)near.pop();
+      }
       let total=0;
       for(const {i,d} of near) {
         const weight=1/Math.max(d,(pitch*.15)**2);total+=weight;

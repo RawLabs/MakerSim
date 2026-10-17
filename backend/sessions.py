@@ -436,7 +436,7 @@ class SessionStore:
         if unit not in ('mm', 'inch') or not isinstance(revision, str) or not revision.strip() or len(revision) > 200:
             raise AgentError('invalid_session', 'Geometry needs mm/inch units and a revision label of 1–200 characters.')
         if len(data) > MAX_STL_BYTES:
-            raise AgentError('file_too_large', 'Session STLs can be up to 20 MB.')
+            raise AgentError('file_too_large', 'Session STLs can be up to 64 MB.')
         try:
             mesh = read_stl(data, unit)
         except ValueError as error:

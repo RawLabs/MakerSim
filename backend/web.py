@@ -10,9 +10,10 @@ import time
 from fastapi import HTTPException
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse, Response
+from .limits import MAX_STL_BYTES
 
 COOKIE = 'makersim_workspace'
-MAX_REQUEST_BYTES = 20 * 1024 * 1024 + 64 * 1024
+MAX_REQUEST_BYTES = MAX_STL_BYTES + 64 * 1024
 
 
 class WorkspaceMiddleware:
@@ -76,7 +77,7 @@ class WorkspaceMiddleware:
             geometry_upload = path.startswith('/api/sessions/') and path.endswith('/geometry')
             limit = MAX_REQUEST_BYTES if path == '/api/models' or geometry_upload else 128 * 1024
             if length < 0 or length > limit:
-                return await reject(413, 'This request is too large. STL files can be up to 20 MB.')
+                return await reject(413, 'This request is too large. STL files can be up to 64 MB.')
             if self.hosted:
                 address = headers.get('cf-connecting-ip', scope.get('client', ('unknown',))[0])
                 try:
@@ -103,7 +104,7 @@ class WorkspaceMiddleware:
                 if message['type'] == 'http.request':
                     read += len(message.get('body', b''))
                     if read > limit:
-                        raise HTTPException(413, 'This request is too large. STL files can be up to 20 MB.')
+                        raise HTTPException(413, 'This request is too large. STL files can be up to 64 MB.')
                 return message
 
             receive = receive_limited

@@ -29,6 +29,8 @@ client=InProcessClient()
 
 @pytest.fixture(autouse=True)
 def in_process_threads(monkeypatch):
+    import backend.app as api
+    monkeypatch.setattr(api,'models',api.OrderedDict())
     # The execution sandbox blocks cross-thread event-loop wakeup sockets.
     # Run the same application functions inline for in-process HTTP tests.
     async def inline(function,*args,**kwargs):
@@ -60,7 +62,7 @@ def test_open_stl_can_be_viewed_but_cannot_solve():
     assert client.post('/api/simulate',json=payload).status_code==422
 
 
-@pytest.mark.parametrize('change',[{'magnitude':0},{'direction':[0,0,0]},{'fixtures':[]},{'unit':'pounds'},{'print_settings':{'walls':-1}}])
+@pytest.mark.parametrize('change',[{'magnitude':0},{'direction':[0,0,0]},{'fixtures':[]},{'unit':'pounds'},{'print_settings':{'walls':-1}},{'mesh_detail':'unbounded'}])
 def test_bad_simulation_inputs_are_actionable(change):
     payload=bracket_request().model_dump();payload.update(change)
     assert client.post('/api/simulate',json=payload).status_code==422
@@ -124,6 +126,47 @@ def test_other_workspaces_cannot_solve_or_evict_a_part():
 
 
 def test_request_limits_and_origin_are_checked_before_upload():
-    assert client.post('/api/models',content=b'x',headers={'Content-Length':str(21*1024*1024)}).status_code == 413
+    assert client.post('/api/models',content=b'x',headers={'Content-Length':str(65*1024*1024)}).status_code == 413
     assert client.post('/api/simulate',content=b'x',headers={'Content-Length':str(129*1024)}).status_code == 413
     assert client.post('/api/models',files={'file':('part.stl',b'x')},headers={'Origin':'https://unrelated.example'}).status_code == 403
+
+
+def test_large_upload_over_old_byte_and_triangle_limits():
+    from tests.test_geometry_limits import dense_box
+    from backend.schemas import Patch, SimulationRequest
+    data = write_binary_stl(dense_box(8))
+    assert len(data) > 20*1024*1024
+    browser = InProcessClient()
+    uploaded = browser.post('/api/models',files={'file':('dense.stl',data)})
+    assert uploaded.status_code == 200,uploaded.text
+    assert uploaded.json()['triangles'] == 786432
+    assert uploaded.json()['simulation_ready']
+    request = SimulationRequest(model_id=uploaded.json()['model_id'],
+        fixtures=[Patch(point=(-30,0,0),normal=(-1,0,0),radius=14)],
+        load=Patch(point=(30,0,0),normal=(1,0,0),radius=14),
+        direction=(1,0,0),magnitude=5,unit='N')
+    solved = browser.post('/api/simulate',json=request.model_dump())
+    assert solved.status_code == 200,solved.text
+    assert solved.json()['checks']['relative_force_balance'] < 1e-8
+
+
+def test_fine_mesh_changes_resolution_and_cache_tracks_detail():
+    browser = InProcessClient()
+    data = (Path(__file__).parents[1]/'backend/data/backpack-bracket.stl').read_bytes()
+    uploaded = browser.post('/api/models',files={'file':('bracket.stl',data)})
+    request = bracket_request().model_dump()
+    request['model_id'] = uploaded.json()['model_id']
+    fields = []
+    for detail in ('standard','fine','standard'):
+        request['mesh_detail'] = detail
+        response = browser.post('/api/simulate',json=request)
+        assert response.status_code == 200,response.text
+        field = response.json()
+        assert field['mesh']['detail'] == detail
+        assert field['mesh']['elements'] <= 6*field['mesh']['max_cells']
+        assert field['checks']['relative_force_balance'] < 1e-8
+        fields.append(field)
+    assert fields[1]['mesh']['cell_mm'] < fields[0]['mesh']['cell_mm']
+    assert fields[1]['mesh']['elements'] > fields[0]['mesh']['elements']
+    assert fields[2]['mesh'] == fields[0]['mesh']
+    assert fields[2]['max_displacement_mm'] == fields[0]['max_displacement_mm']

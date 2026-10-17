@@ -101,6 +101,16 @@ try {
   assert.match(await page.locator('#deformation-label').innerText(),/exaggerated 10×/);
   await page.screenshot({path:resolve(shots,'workspace-movement-50lb.png'),fullPage:true});
   console.log(`Load comparison passed: 5 lb → ${smallMovement} mm; 50 lb → ${largeMovement} mm, both displayed at 10×.`);
+  const standardMesh=await page.locator('#result-mesh').textContent();
+  await page.locator('#mesh-detail').selectOption('fine');
+  assert.equal(await page.locator('#result-panel').isVisible(),false);
+  await page.locator('#simulate').click();
+  await page.locator('#result-panel').waitFor({state:'visible',timeout:60000});
+  const fineMesh=await page.locator('#result-mesh').textContent();
+  assert.notEqual(fineMesh,standardMesh,'Fine must change the actual simulation mesh');
+  assert.match(fineMesh,/1\.98 mm/);
+  await page.screenshot({path:resolve(shots,'workspace-fine.png'),fullPage:true});
+  await page.locator('#mesh-detail').selectOption('standard');
   await page.locator('#clear-selection').click();
   assert.equal(await page.locator('#simulate').isDisabled(),true);
 
@@ -160,6 +170,12 @@ try {
   await page.waitForFunction(()=>document.querySelector('#file-dimensions').textContent.includes('79.0'));
   await page.locator('#help').click();assert.equal(await page.locator('#help-dialog').isVisible(),true);
   await page.keyboard.press('Escape');assert.equal(await page.locator('#help-dialog').isVisible(),false);
+  if(process.env.MAKERSIM_DENSE_STL){
+    await page.locator('#stl-file').setInputFiles({name:'dense-786432.stl',mimeType:'model/stl',buffer:await readFile(process.env.MAKERSIM_DENSE_STL)});
+    await page.waitForFunction(()=>document.querySelector('#viewer-size').textContent.includes('786,432'),null,{timeout:60000});
+    assert.equal(await page.locator('#notice').isVisible(),false);
+    await page.screenshot({path:resolve(shots,'workspace-dense.png'),fullPage:true});
+  }
   await page.setViewportSize({width:390,height:844});
   await page.screenshot({path:resolve(shots,'workspace-mobile.png'),fullPage:true});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);

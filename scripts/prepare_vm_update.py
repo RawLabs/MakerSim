@@ -1,5 +1,6 @@
 """Prepare a credential-free, narrowly scoped one-time MakerSim update."""
 import base64
+import argparse
 import hashlib
 import json
 import os
@@ -11,6 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--preview',action='store_true',help='Include the browser build and its bounded backend modules.')
+    args = parser.parse_args()
     tag = uuid.uuid4().hex
     directory = Path(f'/tmp/makersim-app-update-{tag}')
     os.umask(0o077)
@@ -19,12 +23,20 @@ def main():
     files = []
     hashes = {}
     sources = {
-        'geometry.py':ROOT/'backend/geometry.py',
-        'solver.py':ROOT/'backend/solver.py',
         'vm_update_check.py':ROOT/'scripts/vm_update_check.py',
         'vm_guest_check.py':ROOT/'scripts/vm_guest_check.py',
         'apply_update.py':ROOT/'deploy/apply_update.py',
     }
+    names = ('app.py','geometry.py','limits.py','materials.py','schemas.py','solver.py','web.py') if args.preview else ('geometry.py','limits.py','solver.py')
+    app_sources = {f'backend/{name}':ROOT/'backend'/name for name in names}
+    if args.preview:
+        dist = ROOT/'frontend/dist'
+        if not (dist/'index.html').is_file():
+            raise SystemExit('Build frontend/dist with scripts/check.sh before preparing a preview update.')
+        for path in sorted(dist.rglob('*')):
+            if path.is_file():
+                app_sources[str(path.relative_to(ROOT))] = path
+    sources.update(app_sources)
     def add(name,data):
         files.append({'path':f'{stage}/{name}','permissions':'0600','encoding':'b64',
                       'content':base64.b64encode(data).decode()})
@@ -33,9 +45,9 @@ def main():
             raise SystemExit(f'Update refuses a source symlink: {path}')
         data = path.read_bytes()
         add(name,data)
-        if name in ('geometry.py','solver.py'):
+        if name in app_sources:
             hashes[name] = hashlib.sha256(data).hexdigest()
-    add('manifest.json',json.dumps({'tag':tag,'files':hashes}).encode())
+    add('manifest.json',json.dumps({'format':2,'tag':tag,'preview':args.preview,'files':hashes}).encode())
     # Override first-boot modules so a new NoCloud ID only stages and runs this
     # update. No users, packages, host keys, tunnel settings, or credentials.
     config = {
