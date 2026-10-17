@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "name": "Coupon: ideal 90 mm cantilever, 1 N reference",
+  "stl_unit": "mm",
+  "coordinate_frame": "source_mm",
+  "material_id": "generic-pla",
+  "print_settings": {
+    "walls": 3,
+    "top_layers": 5,
+    "bottom_layers": 5,
+    "infill": 100.0,
+    "orientation": "z",
+    "line_width_mm": 0.45,
+    "layer_height_mm": 0.2
+  },
+  "fixtures": [
+    {
+      "point": [
+        0.0,
+        0.0,
+        3.0
+      ],
+      "radius": 12.0,
+      "normal": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "load_cases": [
+    {
+      "name": "downward_1N",
+      "load": {
+        "point": [
+          90.0,
+          0.0,
+          3.0
+        ],
+        "radius": 12.0,
+        "normal": [
+          1.0,
+          0.0,
+          0.0
+        ]
+      },
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "magnitude": 1.0,
+      "unit": "N",
+      "max_displacement_mm": null
+    }
+  ],
+  "surface_probes": [
+    {
+      "point": [
+        90.0,
+        0.0,
+        3.0
+      ],
+      "radius": 12.0,
+      "normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "name": "load_line",
+      "max_displacement_mm": null
+    }
+  ]
+}

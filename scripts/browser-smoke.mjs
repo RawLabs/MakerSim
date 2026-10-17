@@ -23,11 +23,27 @@ const mime={'.html':'text/html','.js':'application/javascript','.css':'text/css'
 const browser=await chromium.launch({executablePath:process.env.MAKERSIM_CHROMIUM||'/usr/bin/chromium',headless:true,args:['--no-sandbox','--enable-unsafe-swiftshader','--use-angle=swiftshader']});
 const context=await browser.newContext({viewport:{width:1440,height:1060},deviceScaleFactor:1});
 const page=await context.newPage();const errors=[];
+const simulations=[];
+let restoreLegacyPrintSettings=false;
 page.on('pageerror',error=>errors.push(error.message));
 await context.route('**/*',async route=>{
   const request=route.request(),pathname=new URL(request.url()).pathname;
   if(pathname.startsWith('/api/')) {
     const response=await api(request);
+    if(pathname==='/api/simulate'&&response.status===200){
+      const spec=request.postDataJSON(),result=JSON.parse(Buffer.from(response.body,'base64'));
+      simulations.push({spec,result});
+      if(restoreLegacyPrintSettings){
+        // Feed the saved-session display envelope through the production result
+        // handler. Older reports have neither of these two print assumptions.
+        const print_settings={...spec.print_settings};
+        delete print_settings.line_width_mm;delete print_settings.layer_height_mm;
+        result.session_test={spec:{material_id:spec.material_id,print_settings},
+          fixtures:spec.fixtures,load:spec.load,direction:spec.direction,unit:spec.unit};
+        response.body=Buffer.from(JSON.stringify(result)).toString('base64');
+        restoreLegacyPrintSettings=false;
+      }
+    }
     return route.fulfill({status:response.status,contentType:response.content_type,body:Buffer.from(response.body,'base64')});
   }
   const base=pathname.startsWith('/src/')?'frontend':'frontend/dist';
@@ -60,9 +76,22 @@ try {
   assert.equal(await page.locator('#file-name').innerText(),'backpack-bracket.stl');
   assert.equal(await page.locator('#part-card').isVisible(),true);
   assert.equal(await page.locator('#viewer-upload').isVisible(),false);
+  await page.locator('.material-details summary').click();
+  assert.equal(Number(await page.locator('#line-width').inputValue()),.45);
+  assert.equal(Number(await page.locator('#layer-height').inputValue()),.2);
+  for(const [id,invalid,valid] of [['line-width','0.09','0.6'],['layer-height','0.04','0.25']]){
+    await page.locator(`#${id}`).fill(invalid);
+    assert.equal(await page.locator('#simulate').isDisabled(),true,`${id} must enforce its minimum`);
+    await page.locator(`#${id}`).fill('');
+    assert.equal(await page.locator('#simulate').isDisabled(),true,`${id} must reject a blank value`);
+    await page.locator(`#${id}`).fill(valid);
+    assert.equal(await page.locator('#simulate').isDisabled(),false);
+  }
   await page.locator('#force').fill('5');
   await page.locator('#simulate').click();
   await page.locator('#result-panel').waitFor({state:'visible',timeout:60000});
+  assert.equal(simulations.at(-1).spec.print_settings.line_width_mm,.6);
+  assert.equal(simulations.at(-1).spec.print_settings.layer_height_mm,.25);
   assert.equal(await page.locator('#heatmap-legend').isVisible(),true);
   await page.screenshot({path:resolve(shots,'workspace-heatmap.png'),fullPage:true});
   await page.locator('#show-original').click();
@@ -108,8 +137,25 @@ try {
   await page.locator('#result-panel').waitFor({state:'visible',timeout:60000});
   const fineMesh=await page.locator('#result-mesh').textContent();
   assert.notEqual(fineMesh,standardMesh,'Fine must change the actual simulation mesh');
-  assert.match(fineMesh,/1\.98 mm/);
+  assert.match(fineMesh,/enhanced brick elements/);
+  const cellSizes=simulations.at(-1).result.mesh.cell_size_mm;
+  assert.equal(cellSizes.length,3);
+  assert.ok(fineMesh.includes(`${cellSizes.map(value=>value.toFixed(2)).join(' × ')} mm cells`));
+  assert.ok(Math.max(...cellSizes)<Math.max(...simulations.at(-2).result.mesh.cell_size_mm));
   await page.screenshot({path:resolve(shots,'workspace-fine.png'),fullPage:true});
+  await page.locator('#line-width').fill('0.45');
+  assert.equal(await page.locator('#result-panel').isVisible(),false,'Line width changes invalidate the solved result');
+  await page.locator('#simulate').click();
+  await page.locator('#result-panel').waitFor({state:'visible',timeout:60000});
+  await page.locator('#layer-height').fill('0.2');
+  assert.equal(await page.locator('#result-panel').isVisible(),false,'Layer height changes invalidate the solved result');
+  restoreLegacyPrintSettings=true;
+  await page.locator('#simulate').click();
+  await page.locator('#result-panel').waitFor({state:'visible',timeout:60000});
+  assert.equal(Number(await page.locator('#line-width').inputValue()),.45,'Old saved tests restore the default line width');
+  assert.equal(Number(await page.locator('#layer-height').inputValue()),.2,'Old saved tests restore the default layer height');
+  assert.equal(await page.locator('#simulate').isDisabled(),false);
+  await page.locator('.material-details summary').click();
   await page.locator('#mesh-detail').selectOption('standard');
   await page.locator('#clear-selection').click();
   assert.equal(await page.locator('#simulate').isDisabled(),true);
@@ -177,10 +223,17 @@ try {
     await page.screenshot({path:resolve(shots,'workspace-dense.png'),fullPage:true});
   }
   await page.setViewportSize({width:390,height:844});
+  await page.locator('.material-details summary').click();
+  const printInputs=await page.locator('.print-grid input').evaluateAll(inputs=>inputs.map(input=>{
+    const {x,y,width}=input.getBoundingClientRect();return {x,y,width};
+  }));
+  assert.equal(printInputs.length,2);
+  assert.ok(printInputs.every(input=>input.width>=80),'Print assumptions must remain usable on mobile');
+  assert.equal(printInputs[0].y,printInputs[1].y,'Print assumption fields must share a readable row');
   await page.screenshot({path:resolve(shots,'workspace-mobile.png'),fullPage:true});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
   assert.deepEqual(errors,[]);
-  console.log('Browser workflow passed: sample + real solver, paint, drag, rerun, unit conversion, upload, reset, help, mobile.');
+  console.log('Browser workflow passed: sample + real solver, print assumptions, saved defaults, enhanced brick mesh, paint, drag, rerun, unit conversion, upload, reset, help, mobile.');
 } catch(error) {
   console.error('Browser state:',await page.evaluate(()=>({
     notice:document.querySelector('#notice-text')?.textContent,

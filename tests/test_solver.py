@@ -6,7 +6,7 @@ import pytest
 from backend.geometry import TriangleMesh, read_stl, voxelize, write_binary_stl
 from backend.materials import MATERIALS
 from backend.schemas import Patch, PrintSettings, SimulationRequest, force_newtons
-from backend.solver import MAX_CELLS, SimulationError, check_supports, create_volume, patch_nodes, printed_elasticity, solve, strain_matrix
+from backend.solver import MAX_CELLS, SimulationError, check_supports, create_volume, patch_nodes, printed_elasticity, solve
 
 
 def box_mesh(extents=(60,12,12)):
@@ -28,6 +28,22 @@ def thin_channel_mesh():
     return read_stl(write_binary_stl(np.array(triangles)))
 
 
+def test_connected_mesh_cannot_silently_discard_a_thin_appendage():
+    # A 0.5 mm blade atop a thick base can vanish while the base stays connected.
+    profile = np.array([[-30,-3],[30,-3],[30,3],[.25,3],[.25,23],[-.25,23],[-.25,3],[-30,3]])
+    sides = [np.column_stack([profile[:,0],np.full(8,y),profile[:,1]]) for y in (-6,6)]
+    caps = np.array([[0,1,3],[1,2,3],[0,3,6],[0,6,7],[3,4,5],[3,5,6]])
+    triangles = [*sides[0][caps], *sides[1][caps[:,::-1]]]
+    for i in range(8):
+        j = (i+1)%8
+        triangles.extend([[sides[0][i],sides[1][i],sides[1][j]],
+                          [sides[0][i],sides[1][j],sides[0][j]]])
+    mesh = read_stl(write_binary_stl(np.array(triangles)))
+    assert mesh.is_watertight and mesh.components == 1
+    with pytest.raises(SimulationError, match="misses part of this surface"):
+        create_volume(mesh)
+
+
 @pytest.fixture(scope='module')
 def bracket():
     mesh=read_stl((Path(__file__).parents[1]/'backend/data/backpack-bracket.stl').read_bytes())
@@ -40,15 +56,6 @@ def bracket_request(magnitude=25):
         Patch(point=(-25.5,-8,14),normal=(0,-1,0),radius=7)],
         load=Patch(point=(32.5,0,-17),normal=(0,0,1),radius=6),
         direction=(0,0,-1),magnitude=magnitude)
-
-
-def test_tetrahedron_reproduces_affine_strain():
-    points=np.array([[[0,0,0],[2,0,0],[0,3,0],[0,0,4]]],dtype=float)
-    b,volume=strain_matrix(points)
-    gradient=np.array([[.01,.02,.03],[.04,.05,.06],[.07,.08,.09]])
-    displacement=points@gradient.T+np.array([4,7,-2])
-    assert volume[0]==pytest.approx(4)
-    assert b[0]@displacement.ravel()==pytest.approx([.01,.05,.09,.06,.14,.10])
 
 
 def test_bracket_balance_and_linear_load_scaling(bracket):
@@ -249,10 +256,11 @@ def test_thin_connected_part_is_refined_before_rejecting():
     assert result['checks']['reaction_newtons'] == pytest.approx([0,0,5],abs=1e-6)
 
 
-def test_missing_thickness_is_refined():
+def test_bounds_fitted_mesh_preserves_sub_cell_overall_thickness():
     mesh = box_mesh((60,12,.5))
     occupancy, _ = voxelize(mesh,mesh.extents.max()/28)
-    assert not occupancy.any()
+    assert occupancy.all()
+    assert occupancy.shape[2] == 1
     volume = create_volume(mesh)
     assert volume.components == 1
     assert 4 <= len(volume.cells) <= MAX_CELLS
@@ -264,9 +272,15 @@ def test_refinement_respects_budget_and_explains_resolution_limit(monkeypatch):
         create_volume(thin_channel_mesh())
 
 
-def test_unresolved_thickness_reports_mesh_limit():
-    with pytest.raises(SimulationError,match='cannot resolve'):
-        create_volume(box_mesh((60,12,.01)))
+def test_bounds_fitted_mesh_preserves_even_sub_layer_overall_thickness():
+    mesh = box_mesh((60,12,.01))
+    volume = create_volume(mesh)
+    assert np.ptp(volume.nodes, axis=0) == pytest.approx(mesh.extents)
+    assert volume.cell_size[2] == pytest.approx(.01)
+    # Geometry fidelity alone does not imply this thickness can be printed.
+    from backend.print_model import cell_print_model
+    model = cell_print_model(volume, PrintSettings())
+    assert model.metadata['notes']
 
 
 def test_mixed_winding_cannot_inflate_print_stiffness():

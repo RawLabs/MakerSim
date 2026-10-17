@@ -21,7 +21,7 @@ def test_agent_stdio_workflow(tmp_path):
                 assert "EVERY tested revision" in initialized.instructions
                 assert "Wait for the user's design selection" in initialized.instructions
                 available = {tool.name: tool for tool in (await session.list_tools()).tools}
-                assert set(available) == {"get_workflow", "get_test_schema", "get_goal_schema", "list_materials", "inspect_model", "validate_test", "run_test", "get_result", "query_field", "evaluate_goals", "check_convergence", "compare_runs", "capture_result", "create_review",
+                assert set(available) == {"get_workflow", "get_test_schema", "get_goal_schema", "list_materials", "inspect_model", "validate_test", "run_test", "get_result", "query_field", "evaluate_goals", "check_convergence", "compare_runs", "correlate_measurements", "capture_result", "create_review",
                     'create_design_session', 'get_design_session', 'recall_design_context', 'publish_design_event',
                     'begin_design_step', 'finish_design_step', 'run_session_test', 'branch_design_session', 'complete_design_session', 'report_design_activity',
                     'connect_design_agent', 'update_design_connection', 'authorize_design_run'}

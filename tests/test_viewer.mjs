@@ -88,5 +88,16 @@ assert.equal(viewer.markers.visible,true);assert.equal(viewer.result,null);
 viewer.undoHold();viewer.clearSelections();assert.equal(viewer.fixtures.length,0);assert.equal(viewer.load,null);
 await viewer.setFile(buffer,'inch');assert.ok(Math.abs(viewer.span-79*25.4)<1e-3);
 assert.equal(viewer.deformationFactor(),1,'A replacement part starts at actual scale');
+// A closed STL may have all winding reversed. Picks and surface projection must
+// still use its outward side, including when file normals are stale.
+const reversed=Buffer.from(data);
+for(let offset=84;offset<reversed.length;offset+=50)for(let axis=0;axis<3;axis++) {
+  const a=reversed.readFloatLE(offset+24+axis*4),b=reversed.readFloatLE(offset+36+axis*4);
+  reversed.writeFloatLE(b,offset+24+axis*4);reversed.writeFloatLE(a,offset+36+axis*4);
+}
+await viewer.setFile(reversed.buffer.slice(reversed.byteOffset,reversed.byteOffset+reversed.byteLength));
+viewer.setMode('hold');viewer.onDown(event([-25.5,-8,0]));viewer.onUp();
+assert.ok(viewer.fixtures[0].normal[1]<-.99,'Reversed winding must select the air-facing normal');
+viewer.setResult(result);assert.ok(viewer.displacements.every(Number.isFinite));
 assert.ok(selections>2&&edits>1);
 console.log('Viewer interaction checks passed: STL fit, painting, arrow drag, real solver integration, heatmap, proportional movement, fixed scales, reset, inch scaling.');

@@ -11,6 +11,8 @@ export function viewportResult(report, center) {
   return {
     positions: first.fields.positions_mm.map(point => point.map((value, axis) => value - offset[axis])),
     displacement: first.fields.displacement_mm,
+    surface_triangles: first.fields.surface_triangles,
+    surface_quads: first.fields.surface_quads,
     stress: first.fields.surface_stress_mpa,
     heatmap_scale_mpa: scale,
     force_newtons: first.force_newtons,

@@ -7,6 +7,7 @@ from .local import AgentError, compare_runs, get_result, inspect_model, list_mat
 from .capture import capture_report, create_review
 from .workflow import get_workflow
 from .numerical import check_convergence, evaluate_goals, query_field
+from .correlation import correlate_measurements
 from .session_cli import add_commands as add_session_commands, execute as execute_session
 
 
@@ -80,6 +81,10 @@ def main(argv=None):
     converge.add_argument("--max-cells", type=int, default=12000)
     converge.add_argument("--displacement-tolerance", type=float, default=5)
     converge.add_argument("--stress-tolerance", type=float, default=10)
+    correlate = commands.add_parser("correlate", help="Compare measured force/deflection with saved simulations; propose a stiffness factor without applying it.")
+    correlate.add_argument("setup_path")
+    correlate.add_argument("measurements_path")
+    correlate.add_argument("--output", help="Save a new correlation report; existing files are preserved.")
     capture = commands.add_parser("capture", help="Capture an existing report with full fields, without rerunning the solver.")
     capture.add_argument("report_path")
     capture.add_argument("--output-dir", required=True)
@@ -127,6 +132,8 @@ def main(argv=None):
         elif args.command == "capture":
             output = capture_report(args.report_path, args.output_dir, args.stl_path, args.stress_max_mpa, args.movement_scale,
                                     **camera_arguments(args))
+        elif args.command == "correlate":
+            output = correlate_measurements(args.setup_path, args.measurements_path, args.output)
         else:
             output = create_review(args.report_paths, args.output)
     except AgentError as error:

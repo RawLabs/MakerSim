@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "purpose": "Nonstandard small-deflection bending calibration; no strength or safe-load claim.",
+  "physical_coupon": {
+    "stl": "coupon-130x18x6.stl",
+    "length_mm": 130.0,
+    "width_mm": 18.0,
+    "thickness_mm": 6.0,
+    "load_line_x_mm": 120.0,
+    "unloaded_tail_mm": 10.0,
+    "print_count": 3
+  },
+  "initial_print_settings": {
+    "walls": 3,
+    "top_layers": 5,
+    "bottom_layers": 5,
+    "infill": 100,
+    "orientation": "z",
+    "material_id": "generic-pla",
+    "layer_height_mm": 0.2,
+    "line_width_mm": 0.45,
+    "raster": "alternating +45/-45 degrees to X",
+    "calibrated": false
+  },
+  "configurations": [
+    {
+      "span_mm": 60,
+      "clamp_exit_x_mm": 60.0,
+      "analysis_stl": "beam-span-60.stl",
+      "test_spec": "test-span-60.json",
+      "probe": "load_line",
+      "deflection_component": "negative_mean_z_mm"
+    },
+    {
+      "span_mm": 90,
+      "clamp_exit_x_mm": 30.0,
+      "analysis_stl": "beam-span-90.stl",
+      "test_spec": "test-span-90.json",
+      "probe": "load_line",
+      "deflection_component": "negative_mean_z_mm"
+    }
+  ],
+  "correlation_setup": "correlation-setup.json",
+  "measurement_convention": {
+    "force_n": "Actual measured total downward force at the load line, N.",
+    "deflection_mm": "Positive downward load-line displacement relative to the clamp datum, from the unloaded baseline.",
+    "hold_seconds": "Time since the present force plateau was reached.",
+    "scale_reading": "Optional unconverted displayed reading; provide scale_unit and leave force_n blank for automatic conversion.",
+    "phases": [
+      "loading",
+      "unloading",
+      "hold",
+      "recovery"
+    ],
+    "comparison": "Use -surface_probes[name=load_line].mean_displacement_vector_mm[2], not whole-part max displacement."
+  },
+  "documentation": "docs/physical-testing.md",
+  "files_sha256": {
+    "coupon-130x18x6.stl": "71948eaccba31950b6e0b9087c1c3f87efbd256179d41d95eb04a90ed2c70199",
+    "setup.svg": "1c8cbfe23b75d68c831ee8c2daa67a8d24990a1b0a272c23c0e5a275931e34ca",
+    "beam-span-60.stl": "ec26427a83a92f817fdda2a0645c09cf60e8864f52badc3ee0f1464b1a3c206b",
+    "test-span-60.json": "7e810785a65ca8ba30ccc4f8d71a7e191f1238b36e146f1237e01901a639eadf",
+    "beam-span-90.stl": "045d63341298a3ac7a17375e3ce47693db7212655f4e22d933fc24fca2531a8c",
+    "test-span-90.json": "d95f18bc91cfe4cb3da0624dce7b886b76aad86e2dada9cd7633f5ccd71b6dfa",
+    "measurements.csv": "5fce18af7f384856b9495b1e47872b4c459ebc7c09e4fc46b4f4ade9166b298d",
+    "correlation-setup.json": "e9bf9405c5e21add3af23bfe12da66d1f3162c2c44562d14200cf3ace5f26b71"
+  }
+}

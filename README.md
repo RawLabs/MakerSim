@@ -96,8 +96,8 @@ uv sync
 
 [`backend/data/bracket-test.json`](backend/data/bracket-test.json) is a working
 example with fixtures, print settings, 5 lb and 50 lb load cases, a tip probe,
-and a 1 mm movement limit. It calculates approximately 0.395 mm and 3.948 mm
-maximum movement respectively; the heavy case exceeds that numerical limit.
+and a 1 mm movement limit. Solver 0.3.0 calculates approximately 0.803 mm and 8.026 mm
+maximum movement respectively; the heavy case exceeds that numerical limit and the small-displacement range.
 Use a new output filename for each run. Reports are never overwritten.
 
 CLI operations return JSON on stdout. Successful analysis exits 0 even when
@@ -617,8 +617,12 @@ each simulation and are not a failure scale.
 <details>
 <summary>Compare 5 lb and 50 lb at the same movement scale</summary>
 
-The same bracket and test settings calculate 0.3948 mm maximum movement at
-5 lb and 3.948 mm at 50 lb. Both previews use **10× exaggerated movement**, so
+These historical screenshots used solver 0.1.0, which calculated 0.3948 mm
+maximum movement at 5 lb and 3.948 mm at 50 lb. With corrected contact selection
+and surface traction in solver 0.2.0, the bundled test calculated approximately
+0.3816 mm and 3.816 mm. Solver 0.3.0 replaces the bending elements and global
+print correction; it calculates 0.8026 mm and 8.026 mm, with the heavy case
+outside the small-displacement range. Both screenshots use **10× exaggerated movement**, so
 the tenfold load increase remains visible at a fixed display scale.
 
 ![MakerSim displaying a 5 lb test load and 0.3948 mm calculated maximum movement at a 10× display scale](artifacts/workspace-movement-5lb.png)
@@ -721,67 +725,149 @@ as colors, because each heatmap uses its own relative scale.
 
 ## Physics and limits
 
-The solver classifies the closed STL with triangle scanlines, builds a bounded
-voxel volume, and divides each cell into six conforming
-linear tetrahedra. If coarse sampling splits a connected part or misses its
-thickness, meshing retries with smaller cells within the same budget. Actual
-separate solids remain rejected; meshing does not fill gaps or discard pieces.
+Solver **0.3.0** classifies a closed STL with triangle scanlines and builds a
+bounded grid of rectangular cells. The grid fits the original bounding box,
+preserving an aligned bar's width and thickness instead of rounding them up to
+whole cubes. Curved and inclined surfaces still have a staircase approximation.
+If coarse sampling splits a connected part, meshing retries within the cell
+budget. Separate solids, self-intersections and zero-area connections are
+rejected; meshing does not fill gaps or discard pieces. Independent limits on
+spatial candidates, grid allocation and scanline work bound meshing resources.
 
-The browser's **Simulation detail** control selects Standard (28 target cells
-along the longest dimension, up to 4,800 occupied cells) or Fine (40 target
-cells, up to 8,000 occupied cells / 48,000 tetrahedra). Fine takes longer and
-uses more memory. The result reports actual cell size and explains when the
-budget required coarser cells. STL surface triangle count is independent of
-solver resolution; a denser export alone does not refine the calculation.
-For local CLI/MCP runs, the equivalent Fine settings are `resolution=40` and
-`max_cells=8000`; explicit refinement and convergence tools remain available.
-Finer meshes still require convergence checks before trusting numerical detail.
+Each occupied cell uses an eight-node **Wilson element with nine internal
+incompatible displacement modes** (`hexa8_wilson9`). Full 2 × 2 × 2 integration
+and local static condensation improve bending without a correction factor or
+reduced-integration hourglass stabilization. The implementation is restricted to
+axis-aligned rectangular cells with constant material properties per cell; it
+is not a warped-brick or nearly incompressible hybrid formulation. See
+[Wilson, chapter 6](https://edwilson.org/bookshelf/threedimensional.pdf).
 
-The model assembles a three-dimensional orthotropic elasticity matrix in
-**mm, N, MPa** and solves free degrees of freedom with SciPy. Held patches
-constrain all three translations. Load clicks expand to at least a mesh-cell
-surface patch and distribute the total force over several surface nodes.
-Overlapping holds/loads, floating pieces, incomplete rigid-body constraints,
-and excessive equilibrium residuals produce actionable errors.
+**Simulation detail** selects Standard (28 target cells along the longest
+axis, at most 4,800 occupied cells) or Fine (40 target cells, at most 8,000).
+Results report actual cell dimensions, element count, voxel volume and its
+difference from STL volume. Fine costs more memory and time. STL triangle count
+is independent of calculation detail; a denser export alone does not refine the
+solver. Local CLI/MCP supports explicit resolution, cell budgets and refinement
+studies. A finer result still needs a convergence check.
 
-Surface stress is a volume-weighted nodal von Mises scalar used to visualize
-concentration, not an anisotropic failure criterion. The frontend interpolates
-the field onto a subdivided version of the original STL. Each run rescales
-colors using its 98th percentile, so colors alone cannot compare load magnitudes
-across runs. Test load (in the chosen display unit), calculated maximum movement (mm), and peak surface
-stress (MPa) are displayed separately. Movement defaults to actual scale (1×),
-with explicit reduction or exaggeration options from 0.001× to 10,000×. The
-chosen display scale stays fixed across reruns, so increasing a load tenfold
-produces tenfold displayed movement under the same material and constraints.
-Replacing the part resets the display scale to 1×. These are linear-elastic
-calculations; large movements do not predict the real deformed shape.
+### Loads, supports and results
 
-### Mesh approximation
+The solver assembles three-dimensional orthotropic elasticity in **mm, N, MPa**
+and uses a sparse direct solve. A hold fixes all translations at selected mesh
+nodes. Selection uses outward-facing boundary faces and excludes the opposite
+side of a thin wall. Whole faces intersecting a contact disk are included, with
+a minimum radius of 1.1 cells. Actual contact area can therefore exceed the
+painted circle. Uniform traction integrates the compatible bilinear face shape
+functions; results report its area and force centroid as well as hold radii.
+Screw preload, slip, mounting-wall flexibility and changing contact are absent.
 
-This is a staircase volume approximation rather than a boundary-conforming
-tetrahedral mesh. Features smaller than roughly two cells can disappear; small
-bolt holes and thin walls need particular care. There is no mesh-convergence
-guarantee, and first-order tetrahedra can be overly stiff in bending. Selected
-contact areas also approximate the coarse volume. A part whose connections
-cannot be resolved within the mesh budget needs thicker features or simpler
-geometry for this preview.
+Overlapping holds and loads, unsupported rigid motion and excessive force,
+moment or energy-balance errors produce errors. At zero infill, empty cells and
+their unused degrees of freedom are removed without artificial stiffness.
+Every separate printed region needs stable supports; shells joined only at a
+voxel edge or corner are rejected as unresolved connections.
+Contacts omit boundary faces owned by empty cells, so an open hollow end loads
+its remaining shell. Saved contact and probe sampling uses the same selection.
 
-One default-mesh cantilever benchmark understated bending movement by about 23%
-against its beam-theory reference using the meshed dimensions. Error varies with
-geometry; this is not a correction factor for other parts.
+Energy diagnostics report `external_work_n_mm = Fᵀu` and
+`strain_energy_n_mm = ½uᵀKu`; the former must equal twice the latter. These
+checks verify the discrete solution, not the material model or a physical print.
+
+Stress uses enhanced corner strains, converted to von Mises scalars and averaged
+at shared nodes. This is a concentration display, not an anisotropic failure
+criterion. Browser and exported captures interpolate the compatible nodal
+motion and scalar stress on the boundary **quads**, preserving fixed nodal
+values and avoiding interpolation across nearby opposing faces. Element-local
+incompatible displacement modes are not drawn as a continuous surface field.
+Legacy triangle reports retain triangle interpolation; reports without
+connectivity retain their older interpolation.
+
+Colors rescale to each run's 98th percentile. Compare numerical movement and
+stress values, not colors alone. Displayed movement defaults to actual scale
+(1×); explicit reduction/exaggeration stays fixed across reruns. Under unchanged
+conditions a tenfold load gives tenfold calculated movement. Large movement
+exceeds this linear model's validity and does not predict the real deformed shape.
+
+### Numerical evidence and remaining mesh error
+
+For an 80 × 10 × 10 mm isotropic cantilever, E = 1000 MPa, ν = 0.25 and a
+uniform 1 N transverse end load, the Timoshenko beam reference is 0.2072 mm.
+The production mesh/solve path gives these mean loaded-end movements:
+
+| Target cells along length | Actual cell dimensions (mm) | Calculated movement | Difference from beam reference |
+| --- | --- | --- | --- |
+| 8 | 10 × 10 × 10 | 0.20415 mm | −1.47% |
+| 16 | 5 × 5 × 5 | 0.20466 mm | −1.23% |
+| 28 (Standard) | 2.857 × 2.5 × 2.5 | 0.20536 mm | −0.89% |
+| 32 | 2.5 × 2.5 × 2.5 | 0.20546 mm | −0.84% |
+| 64 | 1.25 × 1.25 × 1.25 | 0.20580 mm | −0.68% |
+
+The previous Standard mesh predicted 0.0979 mm: its tetrahedra were too stiff
+in bending and voxel rounding enlarged the cross-section. These values describe
+one controlled benchmark; they are not accuracy bounds for an arbitrary part.
+A 3D clamped solid and a beam theory reference also differ near the clamp.
+
+Tests cover affine strain, rigid modes, positive element energy, aligned and
+rotated bending, axial response, torsion refinement, material-axis changes,
+force/moment/energy balance and load scaling. A rotated bending field is **not**
+exact on a single element; its error decreases with refinement. Small holes,
+fillets, thin walls and contact boundaries remain sensitive to the staircase
+grid. Source vertices more than 1.8 cells from a meshed boundary are rejected,
+but that check cannot certify every local feature. Underresolved shells and
+large volume discrepancies are reported. Compare several resolutions with
+unchanged physical contacts before interpreting a numerical result.
 
 ### Print assumptions
 
-Print settings use a heuristic effective solid fraction from walls, solid layers,
-and infill. V1 assumes 0.45 mm extrusion width, 0.20 mm layers, and balanced
-in-plane rasters. A symmetric positive definite compliance model uses separate
-XY/Z moduli and in-plane shear stiffness; build-axis shear is estimated.
+`line_width_mm` and `layer_height_mm` are editable under **Material & print
+assumptions**, defaulting to 0.45 and 0.20 mm. Walls follow local boundaries
+perpendicular to the build axis; top and bottom skins follow separate distances
+along that axis, including cavity boundaries. Nominal wall thickness is perimeter
+count × line width. Clipped sub-cell intervals integrate shell volume without
+counting edges or corners twice. Real slicer overlaps and extrusion paths differ;
+[Prusa's perimeter guidance](https://help.prusa3d.com/article/layers-and-perimeters_1748)
+explains why nominal extrusion widths do not simply add up to actual wall width.
 
-The build direction can be X, Y, or Z. Arbitrary rotations, explicit rasters,
-individual strands, slicer toolpaths, and delamination are not modeled. Flexible
-materials and large movements are especially approximate. There are no failure
-predictions, certified loads, yield/plasticity, creep, temperature effects,
-contact, buckling, impact, or large-deformation analysis.
+Cells receive different stiffness according to their shell/core fractions.
+This replaces the global solid-fraction correction. At the default settings,
+an aligned 20 mm cube has 44.9% nominal printed volume, consistent with the
+ideal rectangular shell calculation, instead of the previous 71.6% estimate.
+A sub-cell shell's volume can be integrated while its bending stiffness remains
+underresolved: volume accuracy alone is not sufficient.
+
+Core stiffness is `infill_fraction × solid_stiffness`, a **uniform-strain upper
+bound** for the assumed material and density, not an experimentally fitted infill
+law. Mixed cells use the same assumption. Actual raster pattern, density,
+voids and direction require testing or homogenization. See
+[NIST's composite modulus bounds](https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication960-11.pdf)
+and [Bonada et al.'s printed-infill experiments](https://pmc.ncbi.nlm.nih.gov/articles/PMC8468210/).
+This bound does not make an entire simulation conservative: geometry, contacts,
+shell distribution and constitutive assumptions introduce other errors.
+
+A symmetric positive definite compliance matrix retains separate XY/Z moduli,
+in-plane shear stiffness and Poisson's ratio. Build-axis shear is estimated.
+The build direction can be X, Y or Z. Balanced in-plane rasters are assumed;
+arbitrary rotations, individual strands, slicer paths and delamination are not
+modeled. Nearly incompressible and flexible materials need particular care.
+There are no failure predictions, certified loads, plasticity, creep,
+temperature effects, buckling, impact or large-deformation analysis.
+
+### Test a real print
+
+The [physical testing guide](docs/physical-testing.md) includes a printable
+130 × 18 × 6 mm cantilever coupon, two free-span simulation models, a blank
+measurement sheet and a correlation setup. Start with 100% nominal infill to
+separate the base material/fixture test from uncertain sparse-infill behavior.
+Measure **force and load-line deflection**, then loading/unloading recovery;
+a luggage scale alone cannot identify stiffness.
+
+`makersim correlate SETUP.json measurements.csv --output NEW.json` (or the MCP
+`correlate_measurements` tool) compares recorded slopes with saved probe results.
+It reports bias, repeatability, hysteresis and timed hold changes, and proposes
+stiffness multipliers for review. It never changes material data or derives
+breaking strength from stiffness. No physical measurements are bundled or
+claimed. The guide explains source-backed correlations, fixture checks and
+independent validation before applying a fitted factor.
 
 ## Material sources and provenance
 
@@ -856,13 +942,21 @@ From the repository root:
 
 This runs the Python suite, real Three.js interaction checks integrated with
 solver output, session display/activity and load-unit checks, and the production
-build. The Python suite includes affine
-tetrahedral strain, an analytical axial bar, equilibrium,
+build. The Python suite includes enhanced-brick affine strain and bending,
+rigid modes, analytical axial displacement and energy, torsion and cantilever
+refinement, spatial print fractions, zero-infill connectivity,
+force and moment equilibrium,
 tenfold-load scaling, orientation, print settings, retained holes, patch spreading,
 thin-feature refinement, enclosed cavities, shell containment and intersection,
 mesh-budget limits, mixed winding, extreme direction
 vectors, nonfinite JSON validation, atomic model storage, browser workspace
 isolation, streamed body limits, hosted rate limits, and upload concurrency.
+Contact checks cover an extra clamped layer, opposite faces of thin walls,
+inclined surfaces and consistent traction. Display tests cover fixed-node
+movement, bilinear quad fields, nearby opposing faces, legacy reports and
+browser/capture agreement. Coupon and correlation checks cover reproducible
+geometry, measurement units, regression slopes, repeatability, missing data,
+and preservation of recorded results.
 Local agent checks cover CAD coordinate preservation, multi-load and probe
 measurements, artifact preservation, report compatibility, CLI execution outside
 the checkout, local PNG capture and review, branch lineage, and a real MCP
@@ -874,7 +968,9 @@ checks, browser ownership, and hosted session exclusion.
 
 In-process HTTP tests run worker functions inline because the restricted build
 environment blocks cross-thread wakeup sockets; those tests do not verify worker
-concurrency. The stdio MCP test uses a real subprocess and requires worker wakeup
+concurrency. A separate cancellation regression verifies that the admission lock
+stays held until a cancelled request's worker actually finishes. The stdio MCP
+test uses a real subprocess and requires worker wakeup
 sockets; run the checks in an environment that permits them. The Node interaction
 checks exercise actual geometry and raycasting
 without WebGL.

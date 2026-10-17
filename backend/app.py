@@ -20,7 +20,7 @@ from .geometry import TriangleMesh, read_stl
 from .limits import MAX_STL_BYTES, MAX_TRIANGLES
 from .materials import MATERIALS
 from .schemas import SimulationRequest
-from .solver import SimulationError, VolumeMesh, create_volume, solve
+from .solver import SOLVER_VERSION, SimulationError, VolumeMesh, create_volume, solve
 from .web import WorkspaceMiddleware
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -77,6 +77,27 @@ models_lock = Lock()
 solver_lock = asyncio.Lock()
 
 
+async def run_worker(function, *args):
+    """Keep the admission lock until CPU work finishes, even on cancellation."""
+    async with solver_lock:
+        worker = asyncio.create_task(asyncio.to_thread(function, *args))
+        try:
+            return await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            # Cancelling to_thread's await does not stop the underlying thread.
+            # Releasing the lock early would allow two sparse factorizations.
+            while not worker.done():
+                try:
+                    await asyncio.shield(worker)
+                except asyncio.CancelledError:
+                    continue
+                except Exception:
+                    break
+            if not worker.cancelled():
+                worker.exception()  # Retrieve a late worker error after cancellation.
+            raise
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_error(request, error):
     # Pydantic error inputs may contain NaN/Infinity, which JSON cannot encode.
@@ -86,7 +107,8 @@ async def validation_error(request, error):
 
 @app.get('/api/health')
 def health():
-    return {"status": "ready", "solver": "linear-tetrahedral", "version": "0.1.0", "mode": "hosted" if HOSTED else "local"}
+    return {"status": "ready", "solver": "enhanced-brick", "solver_version": SOLVER_VERSION,
+            "version": "0.1.0", "mode": "hosted" if HOSTED else "local"}
 
 
 @app.get('/api/materials')
@@ -144,8 +166,7 @@ async def upload(request: Request, file: UploadFile = File(...), unit: str = For
         # Dense parsing and sparse factorisation share the guest's memory cap.
         if solver_lock.locked():
             raise HTTPException(429, 'The preview is processing another part. Please try again shortly.')
-        async with solver_lock:
-            return await asyncio.to_thread(store_model, data, unit, request.state.workspace_id)
+        return await run_worker(store_model, data, unit, request.state.workspace_id)
     return await asyncio.to_thread(store_model, data, unit, request.state.workspace_id)
 
 
@@ -184,13 +205,12 @@ async def simulate(request: SimulationRequest, http_request: Request):
     # Bound memory and avoid concurrent sparse factorisations in this local app.
     if solver_lock.locked():
         raise HTTPException(429, 'A simulation is already running. Wait for it to finish.')
-    async with solver_lock:
-        try:
-            return await asyncio.to_thread(run_solver, model, request, material)
-        except (SimulationError, ValueError) as error:
-            raise HTTPException(422, str(error)) from error
-        except np.linalg.LinAlgError as error:
-            raise HTTPException(422, 'The quick mesh could not be solved. Try a simpler solid part.') from error
+    try:
+        return await run_worker(run_solver, model, request, material)
+    except (SimulationError, ValueError) as error:
+        raise HTTPException(422, str(error)) from error
+    except np.linalg.LinAlgError as error:
+        raise HTTPException(422, 'The quick mesh could not be solved. Try a simpler solid part.') from error
 
 
 # A built frontend makes the whole app available on a single local port.

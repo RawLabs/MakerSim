@@ -185,10 +185,10 @@ rtk sudo /usr/bin/python scripts/update_vm.py --directory <printed-private-direc
 ```
 
 Run the sudo command in a visible terminal. `--preview` updates the built
-`frontend/dist` and seven allowlisted backend modules: `app`, `geometry`, `limits`,
-`materials`, `schemas`, `solver`, and `web`. It restarts only the MakerSim VM and
+`frontend/dist` and nine allowlisted backend modules: `app`, `geometry`, `hexa`,
+`limits`, `materials`, `print_model`, `schemas`, `solver`, and `web`. It restarts only the MakerSim VM and
 clears its temporary workspaces. The guest backs up the old backend and browser,
-runs cavity, dense-STL, Standard/Fine, readiness, and isolation checks, and
+runs cavity, analytical bending, dense-STL, Standard/Fine, readiness, and isolation checks, and
 restores both together if a check fails. Previous source hashes and the check log
 remain in `/root/makersim-update-backup/<tag>` inside the guest. The host
 controller ejects the disk and verifies the host SSH connector's process ID and
@@ -196,7 +196,9 @@ configuration remained the same. The seed contains no tunnel credentials or
 user uploads. Its first-boot module list is restricted to staging and running the
 update; existing users and SSH configuration are preserved. No dependencies,
 services, tunnel configuration, persistent sessions, or user uploads are copied.
-Without `--preview`, only `geometry.py`, `limits.py`, and `solver.py` are updated.
+Without `--preview`, only `geometry.py`, `hexa.py`, `limits.py`, `print_model.py`,
+`schemas.py`, and `solver.py` are updated. Use `--preview` for the 0.3.0 solver
+so the UI and field interpolation are updated together.
 Dependency, service, or other backend-module changes require a separate deployment.
 
 The preview accepts 64 MB / 1,000,000-triangle STLs. Dense parsing and solving
@@ -211,7 +213,8 @@ on the host. No permanent STL/result archive or analytics is added.
 
 ## Verified mesh-detail update, 2026-10-17
 
-The paired preview update passed guest regression and isolation checks. The
+This section records the earlier deployed tetrahedral solver, before the 0.3.0
+physics changes. The paired preview update passed guest regression and isolation checks. The
 temporary CD-ROM is detached; the controller confirmed the host tunnel and
 isolation configuration were unchanged. All seven public frontend files match
 the tested local build byte for byte. Chromium verified the 64 MB / 1,000,000
@@ -261,3 +264,19 @@ The numerical model remains an experimental coarse linear-elastic preview. Its
 force-balance checks verify equilibrium of that model; they do not establish
 failure predictions or safe working loads. Coarse-mesh bending can be understated,
 and physical testing remains necessary for load-bearing designs.
+
+### Solver 0.3.0 deployment preflight
+
+Local checks exercise the exact minimal hosted module bundle, including the new
+`hexa` and `print_model` imports and print-settings schema. Rollback tests restore
+old files and remove newly introduced modules when either guest check fails.
+The full cavity, analytical cantilever and 786,432-facet Standard/Fine guest
+regression passed under a 1,536 MiB address-space ceiling: 14.78 seconds and
+787 MiB peak resident memory on the development host. This is preflight
+evidence, not a claim that the running VM has been updated.
+
+With the actual 158,402-facet hanger and identical diagnostic contacts, parsing,
+meshing and solving took 4.41 seconds / 183 MiB at Standard and 4.68 seconds /
+293 MiB at Fine. Fine changed displacement by 9.83% and peak surface stress by
+47.86%; its sampled contact area and printed volume also changed. Those two
+levels do not establish convergence or physical accuracy.

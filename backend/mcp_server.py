@@ -13,6 +13,7 @@ from .local import read_bytes, read_json, run_test as run_local_test, validate_t
 from .capture import capture_report as capture_local_report, create_review as create_local_review
 from .workflow import WORKFLOW_INSTRUCTIONS, get_workflow as get_local_workflow
 from .numerical import check_convergence as local_convergence, evaluate_goals as local_goals, query_field as local_query_field
+from .correlation import correlate_measurements as local_correlation
 from .sessions import session_store
 
 mcp = FastMCP("MakerSim", instructions=WORKFLOW_INSTRUCTIONS)
@@ -143,6 +144,17 @@ def check_convergence(stl_path: str, test_path: str, output_dir: str, resolution
 def compare_runs(baseline_path: str, candidate_path: str) -> dict[str, Any]:
     """Compare two saved reports. Reject changed tests/material physics/solver versions; report mesh limitations."""
     return call_local(compare_local_runs, baseline_path, candidate_path)
+
+
+@mcp.tool(annotations=RUN)
+def correlate_measurements(setup_path: str, measurements_path: str, output_path: str | None = None) -> dict[str, Any]:
+    """Compare measured force/deflection CSV data with saved coupon simulations.
+
+    Setup names report probes, spans and instrument resolutions. Returns fitted
+    compliance, repeatability and candidate stiffness factors; never changes
+    materials or estimates breaking load. Preserve another specimen for validation.
+    """
+    return call_local(local_correlation, setup_path, measurements_path, output_path)
 
 
 @mcp.tool(annotations=RUN)

@@ -27,7 +27,7 @@ build-backend = "setuptools.build_meta"
 packages = ["backend"]
 
 [tool.setuptools.package-data]
-backend = ["data/*.json", "data/*.csv", "data/*.stl", "data/BASELINE_LICENSE"]
+backend = ["data/*.json", "data/*.csv", "data/*.stl", "data/BASELINE_LICENSE", "data/calibration/*"]
 
 [dependency-groups]
 dev = ["pytest>=8,<10", "httpx>=0.28,<1"]

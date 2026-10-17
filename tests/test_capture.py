@@ -45,6 +45,90 @@ def test_refinement_preserves_surface_and_interpolation_scales_with_load():
     assert large_s == pytest.approx(s*10)
 
 
+def test_surface_projection_preserves_fixed_nodes_and_separates_narrow_gaps():
+    positions = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0],
+                          [0, 0, .2], [0, 1, .2], [1, 0, .2]], dtype=float)
+    triangles = [[0, 1, 2], [3, 4, 5]]
+    displacement = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0],
+                             [0, 0, 20], [0, 0, 20], [0, 0, 20]], dtype=float)
+    stress = np.array([1, 2, 3, 100, 200, 300], dtype=float)
+    points = np.array([[0, 0, 0], [.25, .25, .12], [.25, .25, .08]], dtype=float)
+    normals = np.array([[0, 0, 1], [0, 0, 1], [0, 0, -1]], dtype=float)
+    u, s = interpolate(points, positions, displacement, stress, 1, triangles, normals)
+    assert u[0] == pytest.approx([0, 0, 0])
+    assert s[:2] == pytest.approx([1, 1.75])
+    assert u[1] == pytest.approx([.25, .25, 0])
+    assert u[2] == pytest.approx([0, 0, 20])
+    opposite_u, opposite_s = interpolate(points[:1], positions, displacement, stress, 1,
+                                        triangles, np.array([[0., 0., -1.]]))
+    assert opposite_u[0] == pytest.approx([0, 0, 0])
+    assert opposite_s[0] == 1
+    legacy_u, legacy_s = interpolate(positions[:1], positions, displacement, stress, 1)
+    assert legacy_u[0] == pytest.approx(displacement[0])
+    assert legacy_s[0] == stress[0]
+    with pytest.raises(AgentError, match="cannot map"):
+        interpolate(np.array([[0., 0., 10.]]), positions, displacement, stress, 1, triangles)
+
+
+@pytest.mark.parametrize('triangles', [[[0, 0, 1]], [[0, 1, 4]], [[0., 1., 2.]], []])
+def test_surface_projection_rejects_invalid_saved_connectivity(triangles):
+    points = np.array([[0., 0., 0.], [1., 0., 0.], [0., 1., 0.]])
+    with pytest.raises(AgentError, match="Surface triangles"):
+        interpolate(points, points, np.zeros_like(points), np.ones(3), 1, triangles)
+
+
+def test_quad_projection_preserves_bilinear_fields_and_legacy_triangle_behavior():
+    positions = np.array([[0.,0,0],[2,0,0],[2,0,3],[0,0,3]])
+    displacement = np.column_stack([positions[:,0]*positions[:,2],np.zeros(4),positions[:,0]+2*positions[:,2]])
+    stress = displacement[:,0]+1
+    points = np.array([[1.,0,1.5],[.5,-.1,.75],[3,0,1.5],[0,0,0]])
+    normals = np.tile([0.,-1,0],(len(points),1))
+    normals[-1] *= -1
+    triangles,quads = [[0,1,2],[0,2,3]],[[0,1,2,3]]
+    u,s = interpolate(points,positions,displacement,stress,3,triangles,normals,surface_quads=quads)
+    assert u[:,0] == pytest.approx([1.5,.375,3,0])
+    assert u[:,2] == pytest.approx([4,2,5,0])
+    assert s == pytest.approx([2.5,1.375,4,1])
+    old_u,_ = interpolate(points[:1],positions,displacement,stress,3,triangles)
+    assert old_u[0,0] == 3  # Legacy triangle diagonal, not Q1's cross term.
+    doubled_u,doubled_s = interpolate(points,positions,displacement*2,stress*2,3,
+                                      normals=normals,surface_quads=quads)
+    assert doubled_u == pytest.approx(u*2)
+    assert doubled_s == pytest.approx(s*2)
+
+
+def test_quad_projection_does_not_mix_opposing_sides_of_a_gap():
+    lower = np.array([[0.,0,0],[2,0,0],[2,0,3],[0,0,3]])
+    positions = np.concatenate([lower,lower+[0,.2,0]])
+    displacement = np.zeros_like(positions)
+    displacement[:4,0] = lower[:,0]*lower[:,2]
+    displacement[4:,0] = 100
+    points = np.array([[1.,.15,1.5],[1,.05,1.5],[0,0,0]])
+    normals = np.array([[0.,-1,0],[0,1,0],[0,1,0]])
+    quads = [[0,1,2,3],[4,7,6,5]]
+    u,s = interpolate(points,positions,displacement,displacement[:,0],3,
+                      normals=normals,surface_quads=quads)
+    assert u[:,0] == pytest.approx([1.5,100,0])
+    assert s == pytest.approx([1.5,100,0])
+    with pytest.raises(AgentError,match='cannot map'):
+        interpolate(np.array([[1.,-20,1.5]]),positions,displacement,displacement[:,0],3,
+                    surface_quads=quads)
+
+
+@pytest.mark.parametrize('quads', [[],[[0,1,2]],[[0,1,2,4]],[[0.,1.,2.,3.]],[[0,2,1,3]],[[0,0,2,3]]])
+def test_quad_projection_rejects_invalid_connectivity(quads):
+    positions = np.array([[0.,0,0],[2,0,0],[2,0,3],[0,0,3]])
+    with pytest.raises(AgentError,match='Surface quads'):
+        interpolate(positions,positions,np.zeros_like(positions),np.ones(4),3,surface_quads=quads)
+
+
+@pytest.mark.parametrize('third', [[3,0,3],[2,.1,3]])
+def test_quad_projection_rejects_skewed_and_nonplanar_faces(third):
+    positions = np.array([[0.,0,0],[2,0,0],third,[0,0,3]])
+    with pytest.raises(AgentError,match='ordered, planar rectangles'):
+        interpolate(positions,positions,np.zeros_like(positions),np.ones(4),3,surface_quads=[[0,1,2,3]])
+
+
 def test_run_images_are_real_pngs_without_bloating_compact_report(captured):
     root, _, _, path, report = captured
     assert "fields" not in report["load_cases"][0]
@@ -66,8 +150,23 @@ def test_run_images_are_real_pngs_without_bloating_compact_report(captured):
     assert manifest["source_sha256"] == report["source"]["sha256"]
     archived = get_result(captures["report_path"])
     assert "fields" in archived["load_cases"][0]
+    assert archived['load_cases'][0]['fields']['surface_quads']
     assert archived["source"] == report["source"]
     assert not list(root.glob(".makersim-capture-*"))
+
+
+def test_export_capture_forwards_saved_quad_connectivity(captured,monkeypatch):
+    import backend.capture as capture
+    root,_,_,_,report = captured
+    archived = get_result(report['captures']['report_path'])
+    calls = []
+    original = capture.interpolate
+    def recorded(*args,**kwargs):
+        calls.append(kwargs.get('surface_quads'))
+        return original(*args,**kwargs)
+    monkeypatch.setattr(capture,'interpolate',recorded)
+    export_captures(archived,root/'quad-forwarding',views=['geometry'])
+    assert calls == [archived['load_cases'][0]['fields']['surface_quads']]
 
 
 def test_branch_records_any_chosen_parent_and_supports_changed_goal(captured):

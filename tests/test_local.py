@@ -27,10 +27,10 @@ def example():
 
 
 def test_load_cases_and_probe_requirements_are_absolute(spec):
-    spec["surface_probes"][0]["max_displacement_mm"] = .5
+    spec["surface_probes"][0]["max_displacement_mm"] = 1
     report = run_test(STL, spec)
     light, heavy = report["load_cases"]
-    assert light["max_displacement_mm"] == pytest.approx(.3947835095)
+    assert 0 < light["max_displacement_mm"] < 1 < heavy["max_displacement_mm"]
     assert heavy["max_displacement_mm"] == pytest.approx(10*light["max_displacement_mm"])
     assert heavy["peak_surface_stress_mpa"] == pytest.approx(10*light["peak_surface_stress_mpa"])
     assert light["criteria_status"] == "met"
@@ -53,6 +53,8 @@ def test_source_and_centered_frames_have_same_physics(spec, example):
         assert after["max_displacement_mm"] == pytest.approx(before["max_displacement_mm"])
         assert np.array(before["fields"]["positions_mm"])-center == pytest.approx(np.array(after["fields"]["positions_mm"]))
         assert after["fields"]["displacement_mm"] == before["fields"]["displacement_mm"]
+        assert np.asarray(before["patches"]["load_centroid_mm"])-center == pytest.approx(after["patches"]["load_centroid_mm"])
+        assert before["fields"]["surface_triangles"] == after["fields"]["surface_triangles"]
 
 
 def test_translated_cad_export_preserves_source_coordinates(tmp_path, spec, example):

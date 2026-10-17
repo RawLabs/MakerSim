@@ -79,7 +79,7 @@ def load_materials() -> dict[str, dict]:
                 "G_xy": material.get("basis", "archived_datasheet_value") if "shearModulus" in material else "derived_isotropic_estimate",
                 "source": material.get("source", "MakerSim archive, source not recorded"),
                 "url": material.get("source_url"),
-                "conditions": "Baseline: 100% infill, 0.2 mm layers, good adhesion. MakerSim print corrections are heuristic.",
+                "conditions": "Assumed baseline: 100% infill, 0.2 mm layers, good adhesion. Spatial shell/core stiffness uses a uniform-strain estimate; this print process has not been calibrated.",
             }
     return materials
 

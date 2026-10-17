@@ -93,12 +93,132 @@ def surface_fields(case):
     return positions, displacement, stress
 
 
-def interpolate(vertices, positions, displacement, stress, pitch):
-    distances, indices = cKDTree(positions).query(vertices, k=4)
-    weights = 1/np.maximum(distances**2, (pitch*.15)**2)
-    weights /= weights.sum(axis=1, keepdims=True)
-    return (np.sum(displacement[indices]*weights[:, :, None], axis=1),
-            np.sum(stress[indices]*weights, axis=1))
+def interpolate(vertices, positions, displacement, stress, pitch, surface_triangles=None, normals=None,
+                *, surface_quads=None):
+    """Match the viewer's outward-face Q1 or legacy triangle interpolation."""
+    quads = surface_quads is not None
+    if surface_triangles is None and not quads:
+        # Older reports have no topology. Preserve their inverse-distance display,
+        # but reproduce exact nodes rather than smoothing clamped motion away.
+        distances, indices = cKDTree(positions).query(vertices, k=min(4, len(positions)))
+        if distances.ndim == 1:
+            distances, indices = distances[:, None], indices[:, None]
+        weights = 1/np.maximum(distances**2, (pitch*.15)**2)
+        exact = distances[:, 0] <= pitch*1e-7
+        weights[exact] = 0
+        weights[exact, 0] = 1
+        weights /= weights.sum(axis=1, keepdims=True)
+        return (np.sum(displacement[indices]*weights[:, :, None], axis=1),
+                np.sum(stress[indices]*weights, axis=1))
+    faces = np.asarray(surface_quads if quads else surface_triangles)
+    label = 'quads' if quads else 'triangles'
+    if (faces.ndim != 2 or faces.shape[1] != (4 if quads else 3) or not len(faces)
+            or not np.issubdtype(faces.dtype, np.integer) or faces.min() < 0 or faces.max() >= len(positions)):
+        raise AgentError("invalid_fields", f"Surface {label} must index the saved surface positions.")
+    triangles = positions[faces]
+    edge_ab, edge_ac = triangles[:, 1]-triangles[:, 0], triangles[:, 3 if quads else 2]-triangles[:, 0]
+    outward = np.cross(edge_ab, edge_ac)
+    lengths = np.linalg.norm(outward, axis=1)
+    if (lengths <= 0).any():
+        raise AgentError("invalid_fields", f"Surface {label} must have nonzero area.")
+    if quads:
+        size_ab,size_ac = np.linalg.norm(edge_ab,axis=1),np.linalg.norm(edge_ac,axis=1)
+        closure = triangles[:,0]+edge_ab+edge_ac
+        if (np.any(np.abs(np.einsum('ij,ij->i',edge_ab,edge_ac)) > 1e-8*size_ab*size_ac)
+                or np.any(np.linalg.norm(triangles[:,2]-closure,axis=1) > 1e-8*np.maximum(size_ab,size_ac))):
+            raise AgentError('invalid_fields', 'Surface quads must form ordered, planar rectangles.')
+    outward /= lengths[:, None]
+    centers = triangles.mean(axis=1)
+    radius = float(np.linalg.norm(triangles-centers[:, None, :], axis=2).max())
+    tree = cKDTree(centers)
+    node_tree = cKDTree(positions)
+    mapped_u, mapped_s = np.empty_like(vertices), np.empty(len(vertices))
+    # Bound temporary point/triangle pairs for dense display surfaces.
+    for start in range(0, len(vertices), 256):
+        points = vertices[start:start+256]
+        node_distance, node_ids = node_tree.query(points)
+        exact = node_distance == 0
+        distances_to_centers, nearby = tree.query(points, k=min(8, len(triangles)))
+        if distances_to_centers.ndim == 1:
+            distances_to_centers, nearby = distances_to_centers[:, None], nearby[:, None]
+        if normals is not None:
+            point_normals = normals[start:start+256]
+            normal_lengths = np.linalg.norm(point_normals, axis=1)
+            compatible = np.einsum('ijk,ik->ij', outward[nearby], point_normals) > .2*normal_lengths[:, None]
+            compatible |= (normal_lengths <= 1e-8)[:, None] | exact[:, None]
+            distances_to_centers = np.where(compatible, distances_to_centers, np.inf)
+        # Any compatible center is a valid point on its face. Its distance
+        # bounds the closest projection; the circumradius covers every possible
+        # better face, without testing a full 1.8-pitch ball for each point.
+        search_radii = np.minimum(distances_to_centers.min(axis=1), 1.8*pitch)+radius
+        neighbors = tree.query_ball_point(points, search_radii, return_sorted=True)
+        counts = np.array([len(ids) for ids in neighbors])
+        rows = np.repeat(np.arange(len(points)), counts)
+        ids = np.concatenate(neighbors).astype(int)
+        if not len(ids) or (counts == 0).any():
+            raise AgentError("invalid_fields", "The quick mesh cannot map part of this surface. Try finer detail or a thicker feature.")
+        if normals is not None:
+            normal_lengths = np.linalg.norm(normals[start:start+256][rows], axis=1)
+            compatible = np.einsum('ij,ij->i', outward[ids], normals[start:start+256][rows]) > .2*normal_lengths
+            # A zero average at an STL corner carries no orientation preference.
+            compatible |= normal_lengths <= 1e-8
+            compatible |= exact[rows]
+            rows, ids = rows[compatible], ids[compatible]
+        a = triangles[ids, 0]
+        ab, ac, delta = edge_ab[ids], edge_ac[ids], points[rows]-a
+        aa, bb, cc = np.einsum('ij,ij->i', ab, ab), np.einsum('ij,ij->i', ab, ac), np.einsum('ij,ij->i', ac, ac)
+        da, dc = np.einsum('ij,ij->i', delta, ab), np.einsum('ij,ij->i', delta, ac)
+        if quads:
+            v,w = np.clip(da/aa,0,1),np.clip(dc/cc,0,1)
+            weights = np.column_stack([(1-v)*(1-w),v*(1-w),v*w,(1-v)*w])
+        else:
+            denominator = aa*cc-bb*bb
+            v, w = (cc*da-bb*dc)/denominator, (aa*dc-bb*da)/denominator
+            weights = np.column_stack([1-v-w, v, w])
+        projected = np.einsum('ij,ijk->ik', weights, triangles[ids])
+        outside = (weights < 0).any(axis=1)
+        if outside.any():
+            clipped, edge_weights = [], []
+            source, target = triangles[ids[outside]], points[rows[outside]]
+            for first, second in ((0, 1), (1, 2), (2, 0)):
+                edge = source[:, second]-source[:, first]
+                t = np.clip(np.einsum('ij,ij->i', target-source[:, first], edge)/np.einsum('ij,ij->i', edge, edge), 0, 1)
+                clipped.append(source[:, first]+t[:, None]*edge)
+                ew = np.zeros((len(t), 3)); ew[:, first] = 1-t; ew[:, second] = t
+                edge_weights.append(ew)
+            clipped = np.stack(clipped, axis=1)
+            nearest = np.sum((clipped-target[:, None])**2, axis=2).argmin(axis=1)
+            projected[outside] = clipped[np.arange(len(target)), nearest]
+            weights[outside] = np.stack(edge_weights, axis=1)[np.arange(len(target)), nearest]
+        distances = np.sum((projected-points[rows])**2, axis=1)
+        # Stable face index ordering matches the browser on shared edges.
+        order = np.lexsort((ids, distances, rows))
+        sorted_rows = rows[order]
+        unique, first = np.unique(sorted_rows, return_index=True)
+        chosen = order[first]
+        if len(unique) != len(points) or (distances[chosen] > (1.8*pitch)**2).any():
+            raise AgentError("invalid_fields", "The quick mesh cannot map part of this surface. Try finer detail or a thicker feature.")
+        selected, factors = faces[ids[chosen]], weights[chosen]
+        mapped_u[start:start+len(points)] = np.sum(displacement[selected]*factors[:, :, None], axis=1)
+        mapped_s[start:start+len(points)] = np.sum(stress[selected]*factors, axis=1)
+        mapped_u[start:start+len(points)][exact] = displacement[node_ids[exact]]
+        mapped_s[start:start+len(points)][exact] = stress[node_ids[exact]]
+    return mapped_u, mapped_s
+
+
+def surface_normals(vertices, faces):
+    """Angle-weighted normals, independent of how the STL was subdivided."""
+    triangles = vertices[faces]
+    normals = np.cross(triangles[:, 1]-triangles[:, 0], triangles[:, 2]-triangles[:, 0])
+    normals /= np.maximum(np.linalg.norm(normals, axis=1)[:, None], 1e-30)
+    averaged = np.zeros_like(vertices)
+    for corner in range(3):
+        a = triangles[:, (corner+1) % 3]-triangles[:, corner]
+        b = triangles[:, (corner+2) % 3]-triangles[:, corner]
+        angles = np.arctan2(np.linalg.norm(np.cross(a, b), axis=1), np.einsum('ij,ij->i', a, b))
+        np.add.at(averaged, faces[:, corner], normals*angles[:, None])
+    averaged /= np.maximum(np.linalg.norm(averaged, axis=1)[:, None], 1e-30)
+    return averaged
 
 
 def draw_image(path, vertices, faces, stress, report, case, bounds, stress_max, view, movement_scale, camera):
@@ -236,6 +356,7 @@ def export_captures(report, output_dir, stl_path=None, stress_max_mpa=None, move
     if report["test_spec"]["coordinate_frame"] == "source_mm":
         original = original+mesh.source_center_mm
     vertices, faces = refine_surface(original, float(mesh.extents.max())/50)
+    normals = surface_normals(vertices, faces)
     # Small triangles make painter ordering more reliable around overlapping ribs.
     # Subdivision preserves the original surface; disable seams during rasterization.
     geometry_vertices, geometry_faces = vertices, faces
@@ -248,7 +369,9 @@ def export_captures(report, output_dir, stl_path=None, stress_max_mpa=None, move
         raise AgentError("invalid_fields", "A positive finite mesh pitch is required.")
     for case in report["load_cases"]:
         positions, displacement, stress = surface_fields(case)
-        u, s = interpolate(vertices, positions, displacement, stress, pitch)
+        u, s = interpolate(vertices, positions, displacement, stress, pitch,
+                           case["fields"].get("surface_triangles"), normals,
+                           surface_quads=case["fields"].get("surface_quads"))
         prepared.append((vertices+u*movement_scale, s))
     legend_max = stress_max_mpa or max(max(case["fields"]["surface_stress_mpa"]) for case in report["load_cases"])
     legend_max = max(float(legend_max), 1e-12)

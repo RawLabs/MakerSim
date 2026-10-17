@@ -78,8 +78,10 @@ def evaluate_goals(baseline_path, candidate_path, goals, output_path=None):
 
 
 def convergence_summary(reports, displacement_tolerance_percent, stress_tolerance_percent):
+    if not reports:
+        raise AgentError("invalid_refinement", "A convergence summary needs saved refinement levels.")
     pitches = [report["mesh"]["cell_mm"] for report in reports]
-    refined = all(b < a*(1-1e-9) for a, b in zip(pitches, pitches[1:]))
+    refined = len(reports) >= 3 and all(b < a*(1-1e-9) for a, b in zip(pitches, pitches[1:]))
     metrics = []
     for case_index, case in enumerate(reports[0]["load_cases"]):
         series = [("max_displacement_mm", None, [r["load_cases"][case_index]["max_displacement_mm"] for r in reports], displacement_tolerance_percent),

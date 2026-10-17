@@ -38,6 +38,8 @@ class PrintSettings(BaseModel):
     bottom_layers: int = Field(default=4, ge=0, le=30)
     infill: Finite = Field(default=20, ge=0, le=100)
     orientation: Literal["z", "x", "y"] = "z"
+    line_width_mm: Finite = Field(default=.45, ge=.1, le=2)
+    layer_height_mm: Finite = Field(default=.2, ge=.05, le=1)
 
 
 class SimulationRequest(BaseModel):

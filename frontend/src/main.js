@@ -7,7 +7,7 @@ import { AgentWindow } from './agent-window.js';
 import brandArtwork from '../../artifacts/MakerSimLogos.png';
 
 const $=(id)=>document.getElementById(id);
-const state={model:null,file:null,materials:[],busy:false,result:null,viewportGeneration:0};
+const state={model:null,file:null,unit:null,materials:[],busy:false,result:null,viewportGeneration:0};
 let maxStlBytes=64*1024*1024;
 const loadUnitPreferenceKey='makersim.loadUnit';
 function savedLoadUnit(){
@@ -47,7 +47,7 @@ $('app').innerHTML=`
           <div class="slider-label"><label for="infill">Infill</label><output id="infill-value">20<span>%</span></output></div>
           <input id="infill" type="range" min="0" max="100" step="5" value="20" />
           <div class="orientation-row"><label for="orientation">Print orientation</label><select id="orientation"><option value="z">Layers stack along Z</option><option value="x">Layers stack along X</option><option value="y">Layers stack along Y</option></select></div>
-          <details class="material-details"><summary>Material & print assumptions ${icon('info')}</summary><div id="material-source"></div><p>0.45 mm extrusion width · 0.20 mm layers.<br>Walls, solid layers and infill modify effective stiffness. Balanced raster directions are assumed.</p></details>
+          <details class="material-details"><summary>Material & print assumptions ${icon('info')}</summary><div id="material-source"></div><div class="print-numbers print-grid"><label>Line width · mm<input id="line-width" type="number" min="0.1" max="2" step="0.01" value="0.45" /></label><label>Layer height · mm<input id="layer-height" type="number" min="0.05" max="1" step="0.01" value="0.20" /></label></div><p>Match these to your slicer. Walls and solid layers are placed around the infill core. Balanced raster directions are assumed; infill stiffness is an upper-bound estimate.</p></details>
         </section>
         <section class="card contact-card">
           <div class="card-heading"><span class="step-number">03</span><h2>Hold & pull</h2></div>
@@ -86,7 +86,7 @@ $('app').innerHTML=`
           <dl class="result-metrics"><div><dt>Test load</dt><dd id="result-force"></dd></div><div><dt>Calculated max movement</dt><dd id="result-movement"></dd></div><div><dt>Peak surface stress</dt><dd id="result-stress"></dd></div></dl>
           <div class="result-controls"><div class="result-tabs" role="group" aria-label="Model display"><button id="show-heatmap" class="selected">Stress heatmap</button><button id="show-original">Original part</button></div><label class="switch-label"><input id="deformation" type="checkbox"/><span class="switch"></span>Show movement</label></div>
           <div class="movement-controls"><label for="movement-scale">Movement scale</label><select id="movement-scale"><option value="0.001">0.001× · reduced</option><option value="0.01">0.01× · reduced</option><option value="0.1">0.1× · reduced</option><option value="1" selected>1× · actual scale</option><option value="10">10× · exaggerated</option><option value="100">100× · exaggerated</option><option value="1000">1,000× · exaggerated</option><option value="10000">10,000× · exaggerated</option></select><span>Kept between runs so you can compare loads.</span></div>
-          <div class="result-note">${icon('info')}<p>Look for concentrated colour around necks, holes and inside corners. This coarse mesh can understate bending movement; colours and movement are approximate design cues.</p></div>
+          <div class="result-note">${icon('info')}<p>Look for concentrated colour around necks, holes and inside corners. Compare mesh detail and match your print and contact settings before interpreting movement or stress.</p></div>
           <details class="result-details"><summary>About this preview</summary><p id="result-mesh"></p><ul id="result-notes"></ul><p>Colours rescale for each run. A stronger colour means higher relative stress, not a failure prediction.</p></details>
         </div>
       </section>
@@ -129,7 +129,7 @@ function invalidate() {
 }
 
 function clearViewport() {
-  state.viewportGeneration++;state.model=null;state.file=null;state.result=null;
+  state.viewportGeneration++;state.model=null;state.file=null;state.unit=null;state.result=null;
   viewer?.clearFile();
   $('empty-view').hidden=false;$('file-summary').hidden=true;$('part-card').hidden=true;
   $('file-name').textContent='';$('file-dimensions').textContent='';$('viewer-name').textContent='Your part';$('viewer-size').textContent='';
@@ -139,7 +139,7 @@ function clearViewport() {
   if(state.busy){$('busy-label').textContent='Opening this design session…';$('busy-detail').textContent='Waiting for the previous preview to finish.';}
 }
 
-function settingsValid() {return ['walls','top-layers','bottom-layers','force'].every(id=>$(id).checkValidity()&&$(id).value.trim()!=='') && !!state.materials.find(m=>m.id===$('material').value)?.supported;}
+function settingsValid() {return ['walls','top-layers','bottom-layers','line-width','layer-height','force'].every(id=>$(id).checkValidity()&&$(id).value.trim()!=='') && !!state.materials.find(m=>m.id===$('material').value)?.supported;}
 
 function updateSelections() {
   if(!viewer)return;
@@ -187,12 +187,12 @@ async function loadFile(file,example=false,sessionPreview=false,{obsolete=()=>fa
     if(outdated())return false;
     await viewer.setFile(buffer,unit);
     if(outdated())return false;
-    state.model=metadata;state.file=file;state.result=null;
+    state.model=metadata;state.file=file;state.unit=unit;state.result=null;
     $('empty-view').hidden=true;$('file-summary').hidden=false;$('part-card').hidden=false;
     $('file-name').textContent=file.name;$('viewer-name').textContent=file.name;
     const dimensions=metadata.dimensions_mm.map(n=>n.toFixed(1)).join(' × ');
     $('file-dimensions').textContent=`${dimensions} mm`;$('viewer-size').textContent=`${metadata.triangles.toLocaleString()} triangles · mm`;
-    $('contact-size').max=String(Math.max(4,Math.round(Math.max(...metadata.dimensions_mm)/2)));
+    $('contact-size').max=String(Math.min(2000,Math.max(4,Math.round(Math.max(...metadata.dimensions_mm)/2))));
     $('contact-size').min=String(Math.max(1,Math.round(Math.max(...metadata.dimensions_mm)/100)));
     $('contact-size').value=String(Math.max(2,Math.round(Math.max(...metadata.dimensions_mm)*.15)));
     updateRadius();$('result-panel').hidden=true;$('heatmap-legend').hidden=true;$('deformation-label').hidden=true;
@@ -200,7 +200,7 @@ async function loadFile(file,example=false,sessionPreview=false,{obsolete=()=>fa
     if(example){viewer.setExampleSelections();setDisplayedLoad(25*loadUnitFactors.lbf,savedLoadUnit()||'lbf');updateForce();updateDirection('down');}
     if(metadata.notes.length)showNotice(metadata.notes.join(' '));
     return true;
-  } catch(error){if(!outdated())showNotice(error.message||'The STL could not be loaded.');return false;}
+  } catch(error){if(!outdated()){if(state.unit)$('stl-unit').value=state.unit;showNotice(error.message||'The STL could not be loaded.');}return false;}
   finally {setBusy(false);setMode('orbit');$('stl-file').value='';}
 }
 
@@ -210,7 +210,8 @@ $('stl-unit').onchange=()=>{if(state.file)loadFile(state.file);};
 $('mesh-detail').onchange=()=>{invalidate();updateSelections();};
 $('load-example').onclick=async()=>{
   if(state.busy)return;
-  try {const response=await fetch('/api/example');if(!response.ok)throw new Error('The example could not be loaded.');$('stl-unit').value='mm';await loadFile(new File([await response.blob()],'backpack-bracket.stl'),true);}
+  const generation=state.viewportGeneration;
+  try {const response=await fetch('/api/example');if(!response.ok)throw new Error('The example could not be loaded.');const data=await response.blob();if(state.busy||generation!==state.viewportGeneration)return;$('stl-unit').value='mm';await loadFile(new File([data],'backpack-bracket.stl'),true);}
   catch(error){showNotice(error.message);}
 };
 let dragDepth=0;
@@ -252,7 +253,7 @@ $('force-unit').addEventListener('change',()=>{
   updateForce();updateSelections();
   if(state.result)$('result-force').textContent=loadDisplay(state.result.force_newtons,unit).label;
 });
-['walls','top-layers','bottom-layers','infill','orientation','material'].forEach(id=>$(id).addEventListener('input',()=>{invalidate();$('infill-value').innerHTML=`${$('infill').value}<span>%</span>`;updateMaterial();updateSelections();}));
+['walls','top-layers','bottom-layers','line-width','layer-height','infill','orientation','material'].forEach(id=>$(id).addEventListener('input',()=>{invalidate();$('infill-value').innerHTML=`${$('infill').value}<span>%</span>`;updateMaterial();updateSelections();}));
 
 function updateMaterial() {
   const material=state.materials.find(m=>m.id===$('material').value);if(!material)return;
@@ -274,7 +275,7 @@ $('simulate').onclick=async()=>{
     const result=await simulate({
       model_id:state.model.model_id,material_id:$('material').value,
       mesh_detail:$('mesh-detail').value,
-      print_settings:{walls:Number($('walls').value),top_layers:Number($('top-layers').value),bottom_layers:Number($('bottom-layers').value),infill:Number($('infill').value),orientation:$('orientation').value},
+      print_settings:{walls:Number($('walls').value),top_layers:Number($('top-layers').value),bottom_layers:Number($('bottom-layers').value),infill:Number($('infill').value),orientation:$('orientation').value,line_width_mm:Number($('line-width').value),layer_height_mm:Number($('layer-height').value)},
       fixtures:viewer.fixtures,load:viewer.load,direction:viewer.direction,
       magnitude:Number($('force').value),unit:$('force-unit').value,
     });
@@ -289,6 +290,7 @@ function showSimulationResult(result) {
       viewer.fixtures=fixtures;viewer.load=load;viewer.direction=direction;viewer.redrawMarkers();
       $('material').value=spec.material_id;
       for(const [key,id] of [['walls','walls'],['top_layers','top-layers'],['bottom_layers','bottom-layers'],['infill','infill'],['orientation','orientation']])$(id).value=spec.print_settings[key];
+      $('line-width').value=spec.print_settings.line_width_mm??0.45;$('layer-height').value=spec.print_settings.layer_height_mm??0.20;
       const unit=savedLoadUnit()||(result.session_test.unit!=='N'&&Object.hasOwn(loadUnitFactors,result.session_test.unit)?result.session_test.unit:$('force-unit').value);
       setDisplayedLoad(result.force_newtons,unit);displayedLoadUnit=unit;updateForce();updateDirection(null);updateMaterial();
       $('infill-value').innerHTML=`${$('infill').value}<span>%</span>`;
@@ -299,7 +301,7 @@ function showSimulationResult(result) {
     $('result-force').textContent=loadDisplay(result.force_newtons,$('force-unit').value).label;
     $('result-movement').textContent=`${formatQuantity(result.max_displacement_mm)} mm`;
     $('result-stress').textContent=`${formatQuantity(result.stress.reduce((peak,value)=>Math.max(peak,value),0))} MPa`;
-    $('result-mesh').textContent=`${result.mesh.elements.toLocaleString()} linear tetrahedra · about ${result.mesh.cell_mm.toFixed(2)} mm per mesh cell. All loads are distributed across a contact patch.`;
+    $('result-mesh').textContent=`${result.mesh.elements.toLocaleString()} ${result.mesh.element_type==='hexa8_wilson9'?'enhanced brick elements':'linear tetrahedra'} · ${(result.mesh.cell_size_mm||[result.mesh.cell_mm]).map(v=>v.toFixed(2)).join(' × ')} mm cells. Loads are distributed across a contact patch.`;
     $('result-notes').innerHTML=result.notes.map(note=>`<li>${escape(note)}</li>`).join('');
     updateSelections();
 }
@@ -329,7 +331,7 @@ getMaterials().then(({materials,workspace,limits})=>{
 }).catch(()=>{showNotice('The solver service is unavailable. Please reload shortly.');$('material').innerHTML='<option>Solver service unavailable</option>';$('material').disabled=true;});
 updateForce();updateRadius();
 agentWindow=new AgentWindow({
-  part:()=>({file:state.file,unit:$('stl-unit').value}),
+  part:()=>({file:state.file,unit:state.unit||$('stl-unit').value}),
   clearViewport,
   showGeometry:async(file,unit,{obsolete,signal})=>{
     while(state.busy)await new Promise(resolve=>window.addEventListener('makersim-idle',resolve,{once:true}));

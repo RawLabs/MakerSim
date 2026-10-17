@@ -170,3 +170,36 @@ def test_fine_mesh_changes_resolution_and_cache_tracks_detail():
     assert fields[1]['mesh']['elements'] > fields[0]['mesh']['elements']
     assert fields[2]['mesh'] == fields[0]['mesh']
     assert fields[2]['max_displacement_mm'] == fields[0]['max_displacement_mm']
+
+
+@pytest.mark.parametrize('worker_fails', [False, True])
+def test_cancelled_request_keeps_solver_lock_until_worker_finishes(monkeypatch, worker_fails):
+    import backend.app as api
+
+    async def run():
+        started, release = asyncio.Event(), asyncio.Event()
+        lock = asyncio.Lock()
+        monkeypatch.setattr(api, 'solver_lock', lock)
+
+        async def slow_worker(function, *args):
+            started.set()
+            await release.wait()
+            if worker_fails:
+                raise ValueError('worker finished after the client left')
+            return 42
+
+        monkeypatch.setattr(asyncio, 'to_thread', slow_worker)
+        task = asyncio.create_task(api.run_worker(lambda: None))
+        await started.wait()
+        task.cancel()
+        await asyncio.sleep(0)
+        assert lock.locked(), 'Cancelling the request cannot release a running worker'
+        task.cancel()  # A second cancellation must not bypass the cleanup wait.
+        await asyncio.sleep(0)
+        assert lock.locked()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert not lock.locked()
+
+    asyncio.run(run())

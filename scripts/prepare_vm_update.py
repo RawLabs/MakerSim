@@ -11,6 +11,15 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def backend_sources(preview):
+    # The solver's dependency closure includes the print-setting schema even
+    # when the browser/app are left unchanged by a backend-only patch.
+    names = {'geometry.py','hexa.py','limits.py','print_model.py','schemas.py','solver.py'}
+    if preview:
+        names.update({'app.py','materials.py','web.py'})
+    return {f'backend/{name}':ROOT/'backend'/name for name in sorted(names)}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--preview',action='store_true',help='Include the browser build and its bounded backend modules.')
@@ -27,8 +36,7 @@ def main():
         'vm_guest_check.py':ROOT/'scripts/vm_guest_check.py',
         'apply_update.py':ROOT/'deploy/apply_update.py',
     }
-    names = ('app.py','geometry.py','limits.py','materials.py','schemas.py','solver.py','web.py') if args.preview else ('geometry.py','limits.py','solver.py')
-    app_sources = {f'backend/{name}':ROOT/'backend'/name for name in names}
+    app_sources = backend_sources(args.preview)
     if args.preview:
         dist = ROOT/'frontend/dist'
         if not (dist/'index.html').is_file():

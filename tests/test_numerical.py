@@ -145,6 +145,10 @@ def test_convergence_needs_two_actual_refinement_steps_and_separate_stress(saved
     levels = [copy.deepcopy(report) for _ in range(3)]
     for level, pitch in zip(levels, [3, 2, 1]):
         level["mesh"]["cell_mm"] = pitch
+    assert convergence_summary(levels[:1], 5, 10)["status"] == "not_assessed"
+    assert convergence_summary(levels[:2], 5, 10)["status"] == "not_assessed"
+    with pytest.raises(AgentError, match="refinement levels"):
+        convergence_summary([], 5, 10)
     assert convergence_summary(levels, 5, 10)["status"] == "within_tolerance"
     levels[1]["load_cases"][0]["peak_surface_stress_mpa"] *= 2
     result = convergence_summary(levels, 5, 10)

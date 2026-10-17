@@ -8,14 +8,15 @@ import shutil
 import subprocess
 import sys
 
-BACKEND = {'app.py','geometry.py','limits.py','materials.py','schemas.py','solver.py','web.py'}
+PATCH_BACKEND = {'geometry.py','hexa.py','limits.py','print_model.py','schemas.py','solver.py'}
+BACKEND = PATCH_BACKEND | {'app.py','materials.py','web.py'}
 
 
 def validate_manifest(manifest):
     assert manifest['format'] == 2
     names = set(manifest['files'])
     backend = {name for name in names if name.startswith('backend/')}
-    expected = BACKEND if manifest['preview'] else {'geometry.py','limits.py','solver.py'}
+    expected = BACKEND if manifest['preview'] else PATCH_BACKEND
     assert backend == {f'backend/{name}' for name in expected}
     static = names-backend
     if manifest['preview']:

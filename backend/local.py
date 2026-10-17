@@ -12,10 +12,11 @@ from .geometry import read_stl
 from .limits import MAX_STL_BYTES
 from .materials import MATERIALS
 from .schemas import Patch, SimulationRequest
-from .solver import SimulationError, create_volume, patch_nodes, solve
+from .solver import SOLVER_VERSION, SimulationError, create_volume, patch_load, patch_nodes, solve
+from .print_model import cell_print_model
+from .hexa import ELEMENT_TYPE
 
 SCHEMA_VERSION = 1
-SOLVER_VERSION = "0.1.0"
 MAX_JSON_BYTES = 32 * 1024 * 1024
 
 
@@ -135,7 +136,8 @@ def inspect_model(stl_path, unit="mm"):
         return {"source": source, **metadata, "simulation_ready": False, "notes": [str(error)]}
     return {"source": source, **metadata, "simulation_ready": True,
             "solid_volume_mm3": abs(mesh.volume),
-            "mesh": {"nodes": len(volume.nodes), "elements": len(volume.tets), "cell_mm": volume.pitch},
+            "mesh": {"nodes": len(volume.nodes), "elements": len(volume.cells), "cell_mm": volume.pitch,
+                     "cell_size_mm": volume.cell_size.tolist(), "element_type": ELEMENT_TYPE},
             "notes": ["Quick voxel mesh; mesh convergence is not established."]}
 
 
@@ -208,8 +210,9 @@ def run_test(stl_path, spec, output_path=None, include_fields=False, revision=No
             raise AgentError("output_exists", "Choose a new capture directory; this path already exists.")
     try:
         volume = create_volume(mesh, resolution, max_cells=max_cells, strict_pitch=strict_pitch)
+        active_cells = cell_print_model(volume, spec.print_settings).stiffness_factor > 0
         fixtures = [centered_patch(patch, spec, mesh) for patch in spec.fixtures]
-        probe_nodes = [(probe, *patch_nodes(volume, centered_patch(probe, spec, mesh))) for probe in spec.surface_probes]
+        probe_nodes = [(probe, *patch_nodes(volume, centered_patch(probe, spec, mesh), active_cells=active_cells)) for probe in spec.surface_probes]
         # The result fields contain all surface nodes, in this same order.
         surface_index = {int(node): index for index, node in enumerate(volume.surface)}
         cases = []
@@ -240,15 +243,12 @@ def run_test(stl_path, spec, output_path=None, include_fields=False, revision=No
                         "value": maximum, "limit": probe.max_displacement_mm, "met": maximum <= probe.max_displacement_mm})
             actual_holds = []
             for patch in fixtures:
-                nodes, radius = patch_nodes(volume, patch)
+                nodes, radius = patch_nodes(volume, patch, active_cells=active_cells)
                 hold_positions = volume.nodes[nodes] + (mesh.source_center_mm if spec.coordinate_frame == "source_mm" else 0)
                 actual_holds.append({"nodes": len(nodes), **sampling_metadata(hold_positions, radius)})
-            loaded_nodes = patch_nodes(volume, request.load)[0]
+            loaded_nodes, weights, _, _ = patch_load(volume, request.load, active_cells=active_cells)
             loaded_positions = volume.nodes[loaded_nodes] + (mesh.source_center_mm if spec.coordinate_frame == "source_mm" else 0)
             load_sampling = sampling_metadata(loaded_positions, result["patches"]["load_radius_mm"])
-            delta = volume.nodes[loaded_nodes] - np.asarray(request.load.point)
-            weights = np.maximum(.08, 1-np.linalg.norm(delta, axis=1)/(result["patches"]["load_radius_mm"]+volume.pitch))
-            weights /= weights.sum()
             order = np.lexsort(np.round(loaded_positions, 9).T[::-1])
             load_sampling["weights_sha256"] = canonical_hash(np.round(weights[order], 12).tolist())
             summary = {
@@ -258,6 +258,7 @@ def run_test(stl_path, spec, output_path=None, include_fields=False, revision=No
                 "peak_surface_stress_mpa": max(result["stress"]), "stress_hotspot_mm": positions[hotspot].tolist(),
                 "surface_probes": probes, "requirements": requirements, "checks": result["checks"],
                 "patches": {**result["patches"], "holds": actual_holds,
+                    "load_centroid_mm": (weights @ loaded_positions).tolist(),
                     "load_sampling": load_sampling,
                     "loaded_sample_bounds_mm": [loaded_positions.min(axis=0).tolist(), loaded_positions.max(axis=0).tolist()]},
                 "effective_material": result["effective_material"],
@@ -266,7 +267,8 @@ def run_test(stl_path, spec, output_path=None, include_fields=False, revision=No
             }
             if include_fields or images_dir is not None:
                 summary["fields"] = {"positions_mm": positions.tolist(), "displacement_mm": result["displacement"],
-                                     "surface_stress_mpa": result["stress"]}
+                                     "surface_stress_mpa": result["stress"], "surface_triangles": result["surface_triangles"],
+                                     "surface_quads": result["surface_quads"]}
             cases.append(summary)
     except (SimulationError, ValueError, np.linalg.LinAlgError) as error:
         if isinstance(error, AgentError):
@@ -278,7 +280,7 @@ def run_test(stl_path, spec, output_path=None, include_fields=False, revision=No
         "test_spec": specification, "test_sha256": canonical_hash(specification),
         "material_physics_sha256": canonical_hash(material["physics"]), "material_provenance": material["provenance"],
         "model": {**mesh_metadata(mesh), "solid_volume_mm3": abs(mesh.volume)},
-        "mesh": {"nodes": len(volume.nodes), "elements": len(volume.tets), "cell_mm": volume.pitch,
+        "mesh": {**result["mesh"],
                  "requested_resolution": resolution, "max_cells": max_cells,
                  "requested_cell_mm": float(mesh.extents.max())/resolution,
                  "coarsened_for_budget": volume.pitch > float(mesh.extents.max())/resolution * (1+1e-9)},

@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "references": [
+    {
+      "span_mm": 60,
+      "report_path": "reference-span-60.json",
+      "load_case": "downward_1N",
+      "probe": "load_line"
+    },
+    {
+      "span_mm": 90,
+      "report_path": "reference-span-90.json",
+      "load_case": "downward_1N",
+      "probe": "load_line"
+    }
+  ],
+  "force_resolution_n": null,
+  "displacement_resolution_mm": null,
+  "metadata": {
+    "filament_brand_color_lot": "",
+    "printer_nozzle": "",
+    "slicer_profile": "",
+    "print_batch_and_date": "",
+    "conditioning": "",
+    "scale_model_and_accuracy": "",
+    "deflection_measurement_method": "",
+    "clamp_and_load_line": "",
+    "mesh_convergence_reports": [],
+    "held_out_validation": "Not performed."
+  }
+}

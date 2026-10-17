@@ -1,6 +1,7 @@
 import * as THREE from './vendor/three.module.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
 import { STLLoader } from './vendor/STLLoader.js';
+import { createSurfaceSampler } from './surface-interpolation.js';
 
 const BLUE = new THREE.Color('#9FB3C8');
 const HOLD = new THREE.Color('#5DE3B3');
@@ -10,7 +11,10 @@ const v3 = (a) => new THREE.Vector3(...a);
 
 function refineGeometry(geometry, target) {
   let positions = geometry.attributes.position.array;
-  const maxTriangles=Math.max(160000,positions.length/9);
+  const maxTriangles=160000;
+  if(positions.length/9>=maxTriangles) {
+    geometry.computeVertexNormals();geometry.computeBoundingSphere();return geometry;
+  }
   // Subdivide long triangles for a readable field on sparsely triangulated STLs.
   for (let pass=0;pass<14;pass++) {
     let remaining=maxTriangles-positions.length/9;
@@ -102,6 +106,13 @@ export class PartViewer {
     geometry.translate(-center.x,-center.y,-center.z);
     geometry.computeBoundingBox();const dimensions=geometry.boundingBox.getSize(new THREE.Vector3());
     const span=Math.max(...dimensions.toArray());
+    // Consistently reversed STL winding is valid geometry. Normalize its outward
+    // direction before contact picking and boundary-field projection.
+    let signedVolume=0;
+    for(let i=0;i<raw.length;i+=9) {
+      signedVolume+=raw[i]*(raw[i+4]*raw[i+8]-raw[i+5]*raw[i+7])+raw[i+1]*(raw[i+5]*raw[i+6]-raw[i+3]*raw[i+8])+raw[i+2]*(raw[i+3]*raw[i+7]-raw[i+4]*raw[i+6]);
+    }
+    if(signedVolume<0)for(let i=0;i<raw.length;i+=9)for(let k=0;k<3;k++)[raw[i+3+k],raw[i+6+k]]=[raw[i+6+k],raw[i+3+k]];
     geometry=refineGeometry(geometry,span/40);
     if(this.part){this.scene.remove(this.part);this.part.geometry.dispose();this.part.material.dispose();}
     this.part=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:BLUE,roughness:.65,metalness:.08,side:THREE.DoubleSide}));
@@ -109,7 +120,7 @@ export class PartViewer {
     this.original=new Float32Array(geometry.attributes.position.array);
     this.colors=new Float32Array(this.original.length);
     geometry.setAttribute('color',new THREE.BufferAttribute(this.colors,3));
-    this.fixtures=[];this.load=null;this.result=null;this.displacements=null;this.stress=null;this.deform=false;this.deformationScale=1;
+    this.fixtures=[];this.load=null;this.result=null;this.displacements=null;this.stress=null;this.fieldSamples=null;this.deform=false;this.deformationScale=1;
     this.makeGrid(span,geometry.boundingBox.min.z-span*.045);this.fit();this.redrawMarkers();this.recolor();
     return dimensions.toArray();
   }
@@ -117,7 +128,7 @@ export class PartViewer {
     this.endDrag();
     if(this.part){this.scene.remove(this.part);this.part.geometry.dispose();this.part.material.dispose();this.part=null;}
     this.original=null;this.colors=null;this.fixtures=[];this.load=null;this.result=null;
-    this.displacements=null;this.stress=null;this.deform=false;this.deformationScale=1;this.direction=[0,0,-1];
+    this.displacements=null;this.stress=null;this.fieldSamples=null;this.deform=false;this.deformationScale=1;this.direction=[0,0,-1];
     this.brush.visible=false;this.span=100;this.makeGrid(100,-30);this.redrawMarkers();
     this.setMode('orbit');this.setBusy(this.busy);this.fit();this.callbacks.selection();
   }
@@ -144,7 +155,12 @@ export class PartViewer {
     this.raycaster.setFromCamera(this.pointer,this.camera);
     return this.part?this.raycaster.intersectObject(this.part,false)[0]:null;
   }
-  patch(hit) {return {point:hit.point.toArray(),normal:hit.face.normal.clone().transformDirection(this.part.matrixWorld).toArray(),radius:this.radius};}
+  surfaceNormal(hit) {
+    const normal=hit.face.normal.clone().transformDirection(this.part.matrixWorld);
+    if(normal.dot(this.raycaster.ray.direction)>0)normal.negate();
+    return normal;
+  }
+  patch(hit) {return {point:hit.point.toArray(),normal:this.surfaceNormal(hit).toArray(),radius:this.radius};}
   onDown(e) {
     if(e.button!==0||this.busy||!this.part||this.mode==='orbit')return;
     e.preventDefault();e.stopPropagation();
@@ -171,7 +187,7 @@ export class PartViewer {
     const hit=this.hit(e);
     if(hit) {
       this.brush.visible=true;this.brush.position.copy(hit.point);
-      const normal=hit.face.normal.clone().transformDirection(this.part.matrixWorld);
+      const normal=this.surfaceNormal(hit);
       this.brush.position.addScaledVector(normal,this.span*.002);
       this.brush.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),normal);
       this.brush.scale.setScalar(this.radius);this.brush.material.color.copy(this.mode==='hold'?HOLD:PULL);
@@ -213,22 +229,23 @@ export class PartViewer {
   }
   recolor() {
     if(!this.part)return;
-    const position=new THREE.Vector3();
+    const normal=this.part.geometry.attributes.normal.array;
+    const patches=[...this.fixtures.map(p=>({...p,color:HOLD})),...(this.load?[{...this.load,color:PULL}]:[])];
+    const mixed=new THREE.Color();
     for(let i=0;i<this.original.length;i+=3) {
-      position.fromArray(this.original,i);
       let color=BLUE;
       if(this.result&&this.heatmap) {
         const value=Math.min(1,Math.max(0,this.stress[i/3]/this.result.heatmap_scale_mpa));
         const index=value*(HEAT.length-1),lo=Math.floor(index);
-        color=HEAT[lo].clone().lerp(HEAT[Math.min(lo+1,HEAT.length-1)],index-lo);
+        color=mixed.copy(HEAT[lo]).lerp(HEAT[Math.min(lo+1,HEAT.length-1)],index-lo);
       } else {
-        const inPatch=(patch)=>{
-          const delta=position.clone().sub(v3(patch.point)),normal=v3(patch.normal).normalize();
-          const depth=delta.dot(normal);
-          return Math.abs(depth)<this.span*.008&&delta.addScaledVector(normal,-depth).length()<=patch.radius;
-        };
-        if(this.fixtures.some(inPatch))color=HOLD;
-        if(this.load&&inPatch(this.load))color=PULL;
+        for(const patch of patches) {
+          const n=patch.normal;
+          if(normal[i]*n[0]+normal[i+1]*n[1]+normal[i+2]*n[2]<=.2)continue;
+          const dx=this.original[i]-patch.point[0],dy=this.original[i+1]-patch.point[1],dz=this.original[i+2]-patch.point[2];
+          const depth=dx*n[0]+dy*n[1]+dz*n[2];
+          if(Math.abs(depth)<this.span*.008&&dx*dx+dy*dy+dz*dz-depth*depth<=patch.radius**2)color=patch.color;
+        }
       }
       color.toArray(this.colors,i);
     }
@@ -237,52 +254,50 @@ export class PartViewer {
   }
   setResult(result) {
     this.setDeformation(false);
-    this.result=result;
-    const pitch=result.mesh.cell_mm;
-    const buckets=new Map();
-    const neighborhoods=new Map(),sampled=new Map();
-    const key=(x,y,z)=>`${x},${y},${z}`;
-    result.positions.forEach((p,i)=>{const k=key(...p.map(x=>Math.floor(x/pitch)));if(!buckets.has(k))buckets.set(k,[]);buckets.get(k).push(i);});
-    this.stress=new Float32Array(this.original.length/3);this.displacements=new Float32Array(this.original.length);
-    for(let offset=0;offset<this.original.length;offset+=3) {
-      const p=Array.from(this.original.slice(offset,offset+3));const cell=p.map(x=>Math.floor(x/pitch));
-      // STL repeats shared vertices. Interpolate each position once and reuse
-      // the search neighborhood for every vertex in the same solver cell.
-      const pointKey=key(...p),previous=sampled.get(pointKey);
-      if(previous!==undefined){
-        this.stress[offset/3]=this.stress[previous/3];
-        for(let k=0;k<3;k++)this.displacements[offset+k]=this.displacements[previous+k];
-        continue;
+    const sample=createSurfaceSampler(result);
+    if(!this.fieldSamples) {
+      const sampled=new Map(),sources=new Uint32Array(this.original.length/3);
+      const normals=this.part.geometry.attributes.normal.array;
+      const sums=new Float32Array(this.original.length);
+      // Angle weighting makes corner normals independent of STL triangulation.
+      for(let offset=0;offset<this.original.length;offset+=3) {
+        const key=`${this.original[offset]},${this.original[offset+1]},${this.original[offset+2]}`;
+        let source=sampled.get(key);
+        if(source===undefined){source=offset;sampled.set(key,source);}
+        sources[offset/3]=source;
+        const base=Math.floor(offset/9)*9,corner=(offset-base)/3;
+        const a=base+((corner+1)%3)*3,b=base+((corner+2)%3)*3;
+        const ax=this.original[a]-this.original[offset],ay=this.original[a+1]-this.original[offset+1],az=this.original[a+2]-this.original[offset+2];
+        const bx=this.original[b]-this.original[offset],by=this.original[b+1]-this.original[offset+1],bz=this.original[b+2]-this.original[offset+2];
+        const angle=Math.atan2(Math.hypot(ay*bz-az*by,az*bx-ax*bz,ax*by-ay*bx),ax*bx+ay*by+az*bz);
+        for(let k=0;k<3;k++)sums[source+k]+=normals[offset+k]*angle;
       }
-      sampled.set(pointKey,offset);
-      const cellKey=key(...cell);
-      let candidates=neighborhoods.get(cellKey);
-      if(!candidates){
-        candidates=[];
-        for(let radius=1;radius<=3&&!candidates.length;radius++) {
-          for(let x=-radius;x<=radius;x++)for(let y=-radius;y<=radius;y++)for(let z=-radius;z<=radius;z++) {
-            const list=buckets.get(key(cell[0]+x,cell[1]+y,cell[2]+z));if(list)candidates.push(...list);
-          }
-        }
-        if(!candidates.length)candidates=Array.from({length:result.positions.length},(_,i)=>i);
-        neighborhoods.set(cellKey,candidates);
-      }
-      const near=[];
-      for(const i of candidates){
-        const q=result.positions[i],d=(q[0]-p[0])**2+(q[1]-p[1])**2+(q[2]-p[2])**2;
-        if(near.length===4&&d>=near[3].d)continue;
-        let insert=near.findIndex(item=>d<item.d);
-        if(insert<0)insert=near.length;
-        near.splice(insert,0,{i,d});if(near.length>4)near.pop();
-      }
-      let total=0;
-      for(const {i,d} of near) {
-        const weight=1/Math.max(d,(pitch*.15)**2);total+=weight;
-        this.stress[offset/3]+=result.stress[i]*weight;
-        for(let k=0;k<3;k++)this.displacements[offset+k]+=result.displacement[i][k]*weight;
-      }
-      this.stress[offset/3]/=total;for(let k=0;k<3;k++)this.displacements[offset+k]/=total;
+      const offsets=new Uint32Array(sampled.values()),averaged=new Float32Array(offsets.length*3);
+      offsets.forEach((offset,i)=>{
+        const length=Math.hypot(sums[offset],sums[offset+1],sums[offset+2]);
+        if(length>1e-8)for(let k=0;k<3;k++)averaged[i*3+k]=sums[offset+k]/length;
+      });
+      this.fieldSamples={offsets,averaged,sources};
     }
+    const {offsets,averaged,sources}=this.fieldSamples;
+    const stress=new Float32Array(sources.length),displacements=new Float32Array(this.original.length);
+    // Shared STL positions must move together at corners. Average their outward
+    // normals for projection, then evaluate the field just once per position.
+    for(let i=0;i<offsets.length;i++) {
+      const offset=offsets[i],outward=Array.from(averaged.subarray(i*3,i*3+3));
+      const {indices,weights}=sample(Array.from(this.original.subarray(offset,offset+3)),outward);
+      for(let j=0;j<indices.length;j++) {
+        const index=indices[j],weight=weights[j];
+        stress[offset/3]+=result.stress[index]*weight;
+        for(let k=0;k<3;k++)displacements[offset+k]+=result.displacement[index][k]*weight;
+      }
+    }
+    for(let offset=0;offset<this.original.length;offset+=3) {
+      const source=sources[offset/3];if(source===offset)continue;
+      stress[offset/3]=stress[source/3];
+      for(let k=0;k<3;k++)displacements[offset+k]=displacements[source+k];
+    }
+    this.result=result;this.stress=stress;this.displacements=displacements;
     this.heatmap=true;this.deform=false;this.recolor();
   }
   setDeformation(enabled) {

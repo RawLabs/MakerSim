@@ -9,6 +9,7 @@ trap 'rm -rf -- "$makersim_qa_directory"' EXIT
 node tests/test_viewer.mjs --prepare
 .venv/bin/python -m scripts.solver_fixture < "$makersim_qa_directory/request.json" > "$makersim_qa_directory/result.json"
 node tests/test_viewer.mjs
+node tests/test_interpolation.mjs
 node tests/test_session_display.mjs
 node tests/test_agent_activity.mjs
 node tests/test_load_display.mjs

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="500" viewBox="0 0 1000 500" role="img" aria-labelledby="title desc">
+<title id="title">MakerSim cantilever coupon: two clamp positions</title>
+<desc id="desc">A 130 by 18 by 6 millimetre bar. Mark clamp exits at 30 and 60 millimetres from the left end. Put the load line at 120 millimetres. Free spans are 90 and 60 millimetres. Measure downward movement at the load line relative to the clamp.</desc>
+<defs><marker id="arrow" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto-start-reverse"><path d="M0 0L7 3.5L0 7" fill="#294153"/></marker></defs>
+<rect width="1000" height="500" fill="#fff"/>
+<g font-family="sans-serif" font-size="17" fill="#172839">
+<text x="60" y="35" font-size="24" font-weight="bold">Print one plain bar; use two clamp positions</text>
+<text x="60" y="62">All dimensions in mm. Mark with ink after printing; do not notch the bar.</text>
+<text x="60" y="105" font-weight="bold">TOP VIEW</text>
+<rect x="110" y="130" width="780" height="108" fill="#d8e8f4" stroke="#294153" stroke-width="2"/>
+<g stroke-width="2" stroke-dasharray="5 4"><path d="M290 118V248M470 118V248" stroke="#137c62"/><path d="M830 118V248" stroke="#b4571d"/></g>
+<text x="110" y="272" text-anchor="middle">0</text><text x="290" y="272" text-anchor="middle">30</text><text x="470" y="272" text-anchor="middle">60</text><text x="830" y="272" text-anchor="middle">120</text><text x="890" y="272" text-anchor="middle">130</text>
+<text x="290" y="101" text-anchor="middle" fill="#137c62">90 mm span clamp</text><text x="493" y="122" text-anchor="middle" fill="#137c62">60 mm span clamp</text>
+<text x="830" y="101" text-anchor="middle" fill="#b4571d">Load line</text>
+<path d="M930 132V236" stroke="#294153" marker-start="url(#arrow)" marker-end="url(#arrow)"/><text x="945" y="190">18</text>
+<path d="M112 292H888" stroke="#294153" marker-start="url(#arrow)" marker-end="url(#arrow)"/><text x="500" y="316" text-anchor="middle">130 total length</text>
+<text x="60" y="350" font-weight="bold">SIDE VIEW: 90 mm setup</text>
+<rect x="110" y="385" width="780" height="36" fill="#d8e8f4" stroke="#294153" stroke-width="2"/>
+<path d="M110 368H290V385H110ZM110 421H290V438H110Z" fill="#879ba8" stroke="#294153"/>
+<circle cx="276" cy="370" r="4" fill="#137c62"/><text x="58" y="468">Track clamp datum</text><path d="M227 453L272 376" stroke="#137c62"/>
+<path d="M830 380V453" stroke="#b4571d" stroke-width="3" marker-end="url(#arrow)"/><text x="738" y="478">Force and movement at x=120</text>
+<path d="M294 363H826" stroke="#294153" marker-start="url(#arrow)" marker-end="url(#arrow)"/><text x="560" y="353" text-anchor="middle">90 free span</text>
+<text x="911" y="409">6 thick</text><text x="375" y="462">30 mm jaw contact at either clamp position</text>
+</g></svg>
